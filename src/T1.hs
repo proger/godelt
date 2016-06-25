@@ -1,19 +1,15 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
                 -fno-warn-unused-do-bind
                 -fno-warn-unused-imports
                 -fno-warn-name-shadowing #-}
 
-module Lib where
+module T1 where
 
 import Text.Show.Pretty (ppShow)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Control.Exception.Base
-import Data.Typeable
 import Debug.Trace
 
 -- * syntax
@@ -85,7 +81,7 @@ data Type
 
 data Mismatch
   = Mismatch String Type Type
-    deriving (Show, Typeable)
+    deriving (Show)
 
 type Context
   = Map Name Type
