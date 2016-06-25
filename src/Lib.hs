@@ -7,7 +7,6 @@
                 -fno-warn-unused-imports
                 -fno-warn-name-shadowing #-}
 
-
 module Lib where
 
 import Text.Show.Pretty (ppShow)
@@ -135,6 +134,8 @@ intro c n t = Map.insert n t c
 
 -- * eval
 
+ts m a = traceShow (m, a) a
+
 eval = \case
   Z ->
     Z
@@ -144,6 +145,8 @@ eval = \case
     Var k
   Ap lam@(Lam _ _ _) a ->
     eval (apsub lam a)
+  Ap x a ->
+    eval (Ap (eval x) a)
   Iter zero _step Z ->
     eval zero
   Iter zero step (S k) ->
@@ -151,16 +154,16 @@ eval = \case
     -- iter 0 u v → u
     -- iter (S t) u v → v(iter t u v)
     eval (apsub step (Iter zero step k))
+  Iter z s a ->
+    eval (Iter z s (eval a))
   -- recursor: (TODO)
   -- R 0 u v → u
   -- R (S t) u v → v (R t u v) t
   lam@(Lam _ _ _) ->
     lam
-  t ->
-    error $ "eval: not implemented: " ++ show t
   where
     apsub (Lam n _ e) a = sub n a e
-    apsub _ _ = error "apsub: not a lam"
+    apsub f a = apsub (eval f) a
 
 -- * examples
 
@@ -180,6 +183,44 @@ double =
   lam Nat $ \n ->
     Iter Z (lam Nat $ \res -> S (S res)) n
 
+plus =
+  lam Nat $ \x ->
+    lam Nat $ \y ->
+       Iter
+       x
+       (lam Nat S)
+       y
+
+-- TODO: prove mult mult' are equal
+
+mult =
+  lam Nat $ \x ->
+    lam Nat $ \y ->
+       Iter
+       Z
+       (lam Nat $ \res ->
+         Iter res (lam Nat S) y)
+       x
+
+mult' =
+  lam Nat $ \x ->
+    lam Nat $ \y ->
+       Iter
+       Z
+       (Ap plus y)
+       x
+
+exp = undefined
+
+-- fac: can't do it with iter! need rec.
+-- fac = \case
+--   lam Nat $ \n ->
+--     Iter (S Z) (lam Nat \r -> Ap mult r ) n
+
+fac = \case
+  0 -> 1
+  n -> n * fac (n-1)
+
 count = \case
   S n -> 1 + count n
   Z -> 0
@@ -192,7 +233,7 @@ uncount = \case
 weird1 = Ap Z Z
 weird2 = Ap (S Z) Z
 
-test = map eval [ smth, smth2, smth3, (\(Ap (Lam _ _ t) _) -> t) smth2, smth4 ]
+test = map eval [ smth, smth2, smth3, (\(Ap (Lam _ _ t) _) -> t) smth2, smth4, (eval $ Ap (Ap mult (uncount 2)) (uncount 4)) ]
 
 -- | Church pairs: need untyped lambdas
 -- pair = lam (\x -> lam (\y -> lam (\z -> (Ap z (Ap x y)))))
