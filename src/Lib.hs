@@ -24,19 +24,12 @@ data Name
   = X Int
     deriving (Eq, Ord)
 
+instance Show Name where show (X i) = "x" ++ show i
+
 x1 = X 1
 x2 = X 2
 x3 = X 3
 x4 = X 4
-
-instance Show Name where
-  show (X i) = "x" ++ show i
-
-fresh :: Name
-fresh = undefined
-
-equalsName :: Name -> Name -> Bool
-equalsName = undefined
 
 -- | A problem with this representation is that, as you traverse a term, you need to remember to substitute fresh variables at appropriate times to avoid accidental problems with α-equivalence and substitution, because the same Name might be used in many places with different meanings
 data Syntax
@@ -82,9 +75,6 @@ sub n arg s = let go = sub n arg in case s of
   Iter zero step arg' ->
     Iter (go zero) (go step) (go arg')
 
-equalsSyntax :: Syntax -> Syntax -> Bool
-equalsSyntax = undefined
-
 lam :: Type -> (Syntax -> Syntax) -> Syntax
 lam t f = Lam name t body
   where
@@ -98,15 +88,18 @@ data Type
   | Arr Type Type
     deriving (Show, Eq)
 
-type Context = Map Name Type
+data Mismatch
+  = Mismatch String Type Type
+    deriving (Show, Typeable)
+
+type Context
+  = Map Name Type
 
 typecheck :: Syntax -> Type
 typecheck = ty Map.empty
 
 die = error . show
 mismatch s l r = die (Mismatch s l r)
-
-data Mismatch = Mismatch String Type Type deriving (Show, Typeable)
 
 ty context =
   let resolv = resolve context
@@ -156,37 +149,32 @@ intro c n t = Map.insert n t c
 
 -- * eval
 
-data Eval
-  = Step Syntax
-  | Value
-
-apsub e a = case e of
-  Lam n _ e -> sub n a e
-  _ -> ts "apsub?" e
-
-eval1 = let eval = eval1 in \case
-  Z -> Z
-  S e -> S (eval e)
-  Var k -> Var k
-  Ap lam@(Lam _ _ _) a -> eval (apsub lam a)
-  Iter zero step arg ->
-    evalIter zero step (eval1 arg) Z
-  t -> error $ "won't eval " ++ show t
-
-ts tag a = trace (tag ++ " " ++ show a) a
-
-evalIter zero lares@(Lam nres tres b) arg acc =
-  case arg of
-    Z -> eval1 zero
-    S k ->
-      -- recursor:
-      -- R 0 u v −→ u
-      -- R (S t) u v −→ v (R t u v) t
-
-      -- iterator:
-      -- iter 0 u v −→ u
-      -- iter (S t) u v −→ v(iter t u v)
-      eval1 (apsub lares (Iter zero lares k))
+eval = \case
+  Z ->
+    Z
+  S e ->
+    S (eval e)
+  Var k ->
+    Var k
+  Ap lam@(Lam _ _ _) a ->
+    eval (apsub lam a)
+  Iter zero _step Z ->
+    eval zero
+  Iter zero step (S k) ->
+    -- iterator:
+    -- iter 0 u v → u
+    -- iter (S t) u v → v(iter t u v)
+    eval (apsub step (Iter zero step k))
+  -- recursor: (TODO)
+  -- R 0 u v → u
+  -- R (S t) u v → v (R t u v) t
+  lam@(Lam _ _ _) ->
+    lam
+  t ->
+    error $ "eval: not implemented: " ++ show t
+  where
+    apsub (Lam n _ e) a = sub n a e
+    apsub _ _ = error "apsub: not a lam"
 
 -- * examples
 
@@ -196,24 +184,15 @@ smth =
 smth2 =
   Ap (lam (Nat) (\x -> S (S (S (ap x))))) Z
   where
-    ap x = (Ap (lam (Nat) $ \y -> x) x)
+    ap x = (Ap (lam (Nat) $ \_ -> x) x)
 
-smth3 = Ap (lam (Nat) (\x -> (lam (Nat) $ \y -> x))) Z
+smth3 = Ap (lam (Nat) (\x -> (lam (Nat) $ \_ -> x))) Z
 
-smth4 = lam (Nat) $ \x -> smth3
-
--- pair = lam (\x -> lam (\y -> lam (\z -> (Ap z (Ap x y)))))
-
--- first  = lam (\p -> Ap p (lam (\x -> lam (\y -> x))))
--- second = lam (\p -> Ap p (lam (\x -> lam (\y -> y))))
-
--- zzp = Ap first (Ap (Ap pair Z) Z)
+smth4 = lam (Nat) $ \_ -> smth3
 
 double =
   lam Nat $ \n ->
-    Rec Z (lam Nat $ \_pred ->
-            lam Nat $ \res ->
-              S (S res)) n
+    Rec Z (lam Nat $ \_pred -> lam Nat $ \res -> S (S res)) n
 
 doublei =
   lam Nat $ \n ->
@@ -222,6 +201,7 @@ doublei =
 count = \case
   S n -> 1 + count n
   Z -> 0
+  e -> error $ "count: can't eval: " ++ show e
 
 uncount = \case
   0 -> Z
@@ -230,6 +210,13 @@ uncount = \case
 weird1 = Ap Z Z
 weird2 = Ap (S Z) Z
 
-test = mapM_ pprint [ smth, smth2, smth3, (\(Ap (Lam _ _ t) _) -> t) smth2, smth4]
+test = map eval [ smth, smth2, smth3, (\(Ap (Lam _ _ t) _) -> t) smth2, smth4 ]
 
+-- | Church pairs: need untyped lambdas
+-- pair = lam (\x -> lam (\y -> lam (\z -> (Ap z (Ap x y)))))
+-- first  = lam (\p -> Ap p (lam (\x -> lam (\y -> x))))
+-- second = lam (\p -> Ap p (lam (\x -> lam (\y -> y))))
+-- zzp = Ap first (Ap (Ap pair Z) Z)
+
+pprint :: String -> IO ()
 pprint = putStrLn . ppShow
