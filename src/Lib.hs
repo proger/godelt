@@ -15,6 +15,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Exception.Base
 import Data.Typeable
+import Debug.Trace
 
 -- * syntax
 
@@ -37,11 +38,6 @@ fresh = undefined
 equalsName :: Name -> Name -> Bool
 equalsName = undefined
 
--- | Annotation.
-data TypeAnn
-  = T
-    deriving (Show, Eq)
-
 -- | A problem with this representation is that, as you traverse a term, you need to remember to substitute fresh variables at appropriate times to avoid accidental problems with α-equivalence and substitution, because the same Name might be used in many places with different meanings
 data Syntax
   = Var Name
@@ -50,6 +46,7 @@ data Syntax
   | Z
   | S Syntax
   | Rec Syntax Syntax Syntax
+  | Iter Syntax Syntax Syntax
   deriving (Show, Eq)
 
 -- Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
@@ -61,9 +58,29 @@ maxBV = \case
   Z -> 0
   S e -> maxBV e
   Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
+  Iter zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
 
-sub :: Name -> Syntax -> Syntax
-sub = undefined
+sub :: Name -> Syntax -> Syntax -> Syntax
+sub n arg s = let go = sub n arg in case s of
+  Var n'
+    | n' == n   -> arg
+    | otherwise -> Var n'
+  Lam n' t b
+    -- | n' == n ->
+    --   peel off a lambda
+    --   go b
+    | otherwise ->
+      Lam n' t (go b)
+  Ap f a ->
+    Ap (go f) (go a)
+  Z ->
+    Z
+  S k ->
+    S (go k)
+  Rec zero step arg' ->
+    Rec (go zero) (go step) (go arg')
+  Iter zero step arg' ->
+    Iter (go zero) (go step) (go arg')
 
 equalsSyntax :: Syntax -> Syntax -> Bool
 equalsSyntax = undefined
@@ -112,6 +129,15 @@ ty context =
            if argT /= Nat then mismatch "rec-arg" argT Nat else
              if oldT /= newT then mismatch "rec-old/new" oldT newT else
                newT
+  Iter zero step arg ->
+    let argT = next arg
+        zeroT = next zero
+        stepT = next step
+        Arr predT newT = stepT
+    in if predT /= Nat then mismatch "iter-pred" predT Nat else
+         if argT /= Nat then mismatch "iter-arg" argT Nat else
+           if zeroT /= newT then mismatch "iter-zero-new" zeroT newT else
+             newT
   Lam n t s ->
     let left = t
         right = inext n t s
@@ -127,6 +153,40 @@ resolve context n =
 
 intro :: Context -> Name -> Type -> Context
 intro c n t = Map.insert n t c
+
+-- * eval
+
+data Eval
+  = Step Syntax
+  | Value
+
+apsub e a = case e of
+  Lam n _ e -> sub n a e
+  _ -> ts "apsub?" e
+
+eval1 = let eval = eval1 in \case
+  Z -> Z
+  S e -> S (eval e)
+  Var k -> Var k
+  Ap lam@(Lam _ _ _) a -> eval (apsub lam a)
+  Iter zero step arg ->
+    evalIter zero step (eval1 arg) Z
+  t -> error $ "won't eval " ++ show t
+
+ts tag a = trace (tag ++ " " ++ show a) a
+
+evalIter zero lares@(Lam nres tres b) arg acc =
+  case arg of
+    Z -> eval1 zero
+    S k ->
+      -- recursor:
+      -- R 0 u v −→ u
+      -- R (S t) u v −→ v (R t u v) t
+
+      -- iterator:
+      -- iter 0 u v −→ u
+      -- iter (S t) u v −→ v(iter t u v)
+      eval1 (apsub lares (Iter zero lares k))
 
 -- * examples
 
@@ -149,7 +209,23 @@ smth4 = lam (Nat) $ \x -> smth3
 
 -- zzp = Ap first (Ap (Ap pair Z) Z)
 
-double = lam Nat $ \n -> Rec Z (lam Nat $ \_pred -> lam Nat $ \res -> S (S res)) n
+double =
+  lam Nat $ \n ->
+    Rec Z (lam Nat $ \_pred ->
+            lam Nat $ \res ->
+              S (S res)) n
+
+doublei =
+  lam Nat $ \n ->
+    Iter Z (lam Nat $ \res -> S (S res)) n
+
+count = \case
+  S n -> 1 + count n
+  Z -> 0
+
+uncount = \case
+  0 -> Z
+  k -> S (uncount (k-1))
 
 weird1 = Ap Z Z
 weird2 = Ap (S Z) Z
