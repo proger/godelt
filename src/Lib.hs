@@ -233,13 +233,26 @@ uncount = \case
 weird1 = Ap Z Z
 weird2 = Ap (S Z) Z
 
-test = map eval [ smth, smth2, smth3, (\(Ap (Lam _ _ t) _) -> t) smth2, smth4, (eval $ Ap (Ap mult (uncount 2)) (uncount 4)) ]
-
 -- | Church pairs: need untyped lambdas
 -- pair = lam (\x -> lam (\y -> lam (\z -> (Ap z (Ap x y)))))
 -- first  = lam (\p -> Ap p (lam (\x -> lam (\y -> x))))
 -- second = lam (\p -> Ap p (lam (\x -> lam (\y -> y))))
 -- zzp = Ap first (Ap (Ap pair Z) Z)
 
-pprint :: String -> IO ()
-pprint = putStrLn . ppShow
+data Id a
+  = a :===: a
+    deriving Show
+
+test =
+  let evalv e = e :===: (eval e) in
+  mapM_ (pprint . evalv) [ smth
+                        , smth2
+                        , smth3
+                        , (\(Ap (Lam _ _ t) _) -> t) smth2
+                        , smth4
+                        , (Ap (Ap mult (uncount 2)) (uncount 4)) ]
+
+pprint :: Show a => a -> IO ()
+pprint a = do
+  (putStrLn . ppShow) a
+  putStrLn ""
