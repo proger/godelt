@@ -38,7 +38,6 @@ data Syntax
   | Ap Syntax Syntax
   | Z
   | S Syntax
-  | Rec Syntax Syntax Syntax
   | Iter Syntax Syntax Syntax
   deriving (Show, Eq)
 
@@ -50,7 +49,6 @@ maxBV = \case
   Ap f a -> maxBV f `max` maxBV a
   Z -> 0
   S e -> maxBV e
-  Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
   Iter zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
 
 sub :: Name -> Syntax -> Syntax -> Syntax
@@ -70,8 +68,6 @@ sub n arg s = let go = sub n arg in case s of
     Z
   S k ->
     S (go k)
-  Rec zero step arg' ->
-    Rec (go zero) (go step) (go arg')
   Iter zero step arg' ->
     Iter (go zero) (go step) (go arg')
 
@@ -112,16 +108,6 @@ ty context =
     if got == Nat then Nat else mismatch "S" got Nat
   Var n ->
     resolv n
-  Rec zero step arg ->
-    let argT = next arg
-        zeroT = next zero
-        stepT = next step
-        Arr predT (Arr oldT newT) = stepT
-    in if oldT /= zeroT then mismatch "rec-zero/res" zeroT oldT else
-         if predT /= Nat then mismatch "rec-pred" predT Nat else
-           if argT /= Nat then mismatch "rec-arg" argT Nat else
-             if oldT /= newT then mismatch "rec-old/new" oldT newT else
-               newT
   Iter zero step arg ->
     let argT = next arg
         zeroT = next zero
@@ -191,10 +177,6 @@ smth3 = Ap (lam (Nat) (\x -> (lam (Nat) $ \_ -> x))) Z
 smth4 = lam (Nat) $ \_ -> smth3
 
 double =
-  lam Nat $ \n ->
-    Rec Z (lam Nat $ \_pred -> lam Nat $ \res -> S (S res)) n
-
-doublei =
   lam Nat $ \n ->
     Iter Z (lam Nat $ \res -> S (S res)) n
 
