@@ -33,7 +33,7 @@ data Syntax
   | Ap Syntax Syntax
   | Z
   | S Syntax
-  | Iter Syntax Syntax Syntax
+  | Rec Syntax Syntax Syntax
   deriving (Show, Eq)
 
 -- Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
@@ -44,7 +44,7 @@ maxBV = \case
   Ap f a -> maxBV f `max` maxBV a
   Z -> 0
   S e -> maxBV e
-  Iter zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
+  Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
 
 sub :: Name -> Syntax -> Syntax -> Syntax
 sub n arg s = let go = sub n arg in case s of
@@ -63,8 +63,8 @@ sub n arg s = let go = sub n arg in case s of
     Z
   S k ->
     S (go k)
-  Iter zero step arg' ->
-    Iter (go zero) (go step) (go arg')
+  Rec zero step arg' ->
+    Rec (go zero) (go step) (go arg')
 
 lam :: Type -> (Syntax -> Syntax) -> Syntax
 lam t f = Lam name t body
@@ -103,15 +103,16 @@ ty context =
     if got == Nat then Nat else mismatch "S" got Nat
   Var n ->
     resolv n
-  Iter zero step arg ->
+  Rec zero step arg ->
     let argT = next arg
         zeroT = next zero
         stepT = next step
-        Arr predT newT = stepT
-    in if predT /= Nat then mismatch "iter-pred" predT Nat else
-         if argT /= Nat then mismatch "iter-arg" argT Nat else
-           if zeroT /= newT then mismatch "iter-zero-new" zeroT newT else
-             newT
+        Arr predT (Arr recT newT) = stepT
+    in if recT /= zeroT then mismatch "iter-rec-zero" recT zeroT else
+         if predT /= Nat then mismatch "rec-pred" predT Nat else
+           if argT /= Nat then mismatch "iter-arg" argT Nat else
+             if zeroT /= newT then mismatch "iter-zero-new" zeroT newT else
+               newT
   Lam n t s ->
     let left = t
         right = inext n t s
@@ -143,15 +144,15 @@ eval = \case
     eval (apsub lam a)
   Ap x a ->
     eval (Ap (eval x) a)
-  Iter zero _step Z ->
+  Rec zero _step Z ->
     eval zero
-  Iter zero step (S k) ->
+  Rec zero step (S k) ->
     -- iterator:
     -- iter 0 u v → u
     -- iter (S t) u v → v(iter t u v)
-    eval (apsub step (Iter zero step k))
-  Iter z s a ->
-    eval (Iter z s (eval a))
+    eval (apsub (apsub step k) (Rec zero step k))
+  Rec z s a ->
+    eval (Rec z s (eval a))
   -- recursor: (TODO)
   -- R 0 u v → u
   -- R (S t) u v → v (R t u v) t
@@ -171,18 +172,20 @@ smth2 =
   where
     ap x = (Ap (lam (Nat) $ \_ -> x) x)
 
-smth3 = Ap (lam (Nat) (\x -> (lam (Nat) $ \_ -> x))) Z
+smth3 = Ap (lam (Nat) (\x -> (lam Nat $ \_ -> x))) Z
 
 smth4 = lam (Nat) $ \_ -> smth3
 
+iter zero step arg = Rec zero (lam Nat $ \_pred -> step) arg
+
 double =
   lam Nat $ \n ->
-    Iter Z (lam Nat $ \res -> S (S res)) n
+    iter Z (lam Nat $ \res -> S (S res)) n
 
 plus =
   lam Nat $ \x ->
     lam Nat $ \y ->
-       Iter
+       iter
        x
        (lam Nat S)
        y
@@ -192,16 +195,16 @@ plus =
 mult =
   lam Nat $ \x ->
     lam Nat $ \y ->
-       Iter
+       iter
        Z
        (lam Nat $ \res ->
-         Iter res (lam Nat S) y)
+         iter res (lam Nat S) y)
        x
 
 mult' =
   lam Nat $ \x ->
     lam Nat $ \y ->
-       Iter
+       iter
        Z
        (Ap plus y)
        x
@@ -211,7 +214,7 @@ exp = undefined
 -- fac: can't do it with iter! need rec.
 -- fac = \case
 --   lam Nat $ \n ->
---     Iter (S Z) (lam Nat \r -> Ap mult r ) n
+--     Rec (S Z) (lam Nat \r -> Ap mult r ) n
 
 fac = \case
   0 -> 1
@@ -235,18 +238,25 @@ weird2 = Ap (S Z) Z
 -- second = lam (\p -> Ap p (lam (\x -> lam (\y -> y))))
 -- zzp = Ap first (Ap (Ap pair Z) Z)
 
-data Id a
-  = a :===: a
+data Id a b
+  = a :===: b
     deriving Show
+
+suite = [ mult
+        , smth
+        , smth2
+        , smth3
+        --, (\(Ap (Lam _ _ t) _) -> t) smth2
+        --, smth4
+        , (Ap (Ap mult (uncount 2)) (uncount 4)) ]
 
 test =
   let evalv e = e :===: (eval e) in
-  mapM_ (pprint . evalv) [ smth
-                        , smth2
-                        , smth3
-                        , (\(Ap (Lam _ _ t) _) -> t) smth2
-                        , smth4
-                        , (Ap (Ap mult (uncount 2)) (uncount 4)) ]
+  mapM_ (pprint . evalv) suite
+
+tytest =
+  let ty e = e :===: (typecheck e) in
+  mapM_ (pprint . ty) suite
 
 pprint :: Show a => a -> IO ()
 pprint a = do
