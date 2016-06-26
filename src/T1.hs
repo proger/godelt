@@ -15,7 +15,6 @@ import Debug.Trace
 
 -- * syntax
 
--- | One common issue in implementing programming languages is representing names/variables/identifiers in such a way that you can check α-equivalence of syntax trees and correctly implement (capture-avoiding) substitution
 data Name
   = X Int
     deriving (Eq, Ord)
@@ -27,7 +26,6 @@ x2 = X 2
 x3 = X 3
 x4 = X 4
 
--- | A problem with this representation is that, as you traverse a term, you need to remember to substitute fresh variables at appropriate times to avoid accidental problems with α-equivalence and substitution, because the same Name might be used in many places with different meanings
 data Syntax
   = Var Name
   | Lam Name Type Syntax
@@ -52,12 +50,8 @@ sub n arg s = let go = sub n arg in case s of
   Var n'
     | n' == n   -> arg
     | otherwise -> Var n'
-  Lam n' t b
-    -- | n' == n ->
-    --   peel off a lambda
-    --   go b
-    | otherwise ->
-      Lam n' t (go b)
+  Lam n' t b ->
+    Lam n' t (go b)
   Ap f a ->
     Ap (go f) (go a)
   Z ->
