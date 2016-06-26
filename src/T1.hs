@@ -154,7 +154,7 @@ eval = \case
     -- | recursor:
     --   0 u v → u
     --   R (S t) u v → v (R t u v) t
-    eval (apsub (apsub step k) (Rec zero step k))
+    eval (apsub (apsub step k) (eval (Rec zero step k)))
   Rec z s a ->
     eval (Rec z s (eval a))
   lam@(Lam _ _ _) ->
