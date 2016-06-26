@@ -7,6 +7,7 @@
 
 module T1 where
 
+import Prelude hiding (exp)
 import Text.Show.Pretty (ppShow)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -107,9 +108,9 @@ ty context =
     let argT = next arg
         zeroT = next zero
         stepT = next step
-        Arr predT (Arr recT newT) = stepT
+        Arr prevT (Arr recT newT) = stepT
     in if recT /= zeroT then mismatch "iter-rec-zero" recT zeroT else
-         if predT /= Nat then mismatch "rec-pred" predT Nat else
+         if prevT /= Nat then mismatch "rec-prev" prevT Nat else
            if argT /= Nat then mismatch "iter-arg" argT Nat else
              if zeroT /= newT then mismatch "iter-zero-new" zeroT newT else
                newT
@@ -147,20 +148,35 @@ eval = \case
   Rec zero _step Z ->
     eval zero
   Rec zero step (S k) ->
-    -- iterator:
-    -- iter 0 u v → u
-    -- iter (S t) u v → v(iter t u v)
+    -- | iterator:
+    --   iter 0 u v → u
+    --   iter (S t) u v → v(iter t u v)
+    -- | recursor:
+    --   0 u v → u
+    --   R (S t) u v → v (R t u v) t
     eval (apsub (apsub step k) (Rec zero step k))
   Rec z s a ->
     eval (Rec z s (eval a))
-  -- recursor: (TODO)
-  -- R 0 u v → u
-  -- R (S t) u v → v (R t u v) t
   lam@(Lam _ _ _) ->
     lam
   where
     apsub (Lam n _ e) a = sub n a e
     apsub f a = apsub (eval f) a
+
+-- * sugar
+
+iter :: Syntax -> Syntax -> Syntax -> Syntax
+iter zero step arg =
+  Rec zero (lam Nat $ \_prev -> step) arg
+
+natlam2 :: (Syntax -> Syntax -> Syntax) -> Syntax
+natlam2 f = lam Nat $ \a -> lam Nat $ \b -> f a b
+
+natrec :: Syntax -> (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
+natrec zero step arg =
+  Rec zero (lam Nat $ \prev ->
+             lam Nat $ \res ->
+              step prev res) arg
 
 -- * examples
 
@@ -176,7 +192,8 @@ smth3 = Ap (lam (Nat) (\x -> (lam Nat $ \_ -> x))) Z
 
 smth4 = lam (Nat) $ \_ -> smth3
 
-iter zero step arg = Rec zero (lam Nat $ \_pred -> step) arg
+rcount =
+  lam Nat $ \n -> iter Z (lam Nat $ \res -> res) n
 
 double =
   lam Nat $ \n ->
@@ -209,12 +226,25 @@ mult' =
        (Ap plus y)
        x
 
-exp = undefined
+exp =
+  natlam2 $ \base pow ->
+    -- why does assoc matter?
+    natrec (S Z) (\prev res -> (Ap (Ap mult res) base)) pow
 
--- fac: can't do it with iter! need rec.
--- fac = \case
+-- fact 4 = 4 * 3 * 2 * 1 = 24
+-- fact 4 = 4 3 2 1
+
+-- fact = lam Nat $ \n ->
+--   natrec (S Z) (\prev r ->
+--                  Ap
+--                  (Ap mult r) (natrec (S Z) (\prev' r' -> Ap (Ap mult r) r') prev) ) n
+
+
+-- fact: can't do it with iter! need rec.
+-- fact =
 --   lam Nat $ \n ->
---     Rec (S Z) (lam Nat \r -> Ap mult r ) n
+--     Rec (S Z) (lam Nat $ \prev -> lam Nat $ \r ->
+--                 Ap (Ap mult r) (iter (S Z) (lam Nat $ \) prev)) n
 
 fac = \case
   0 -> 1
