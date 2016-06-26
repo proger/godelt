@@ -228,23 +228,11 @@ mult' =
 
 exp =
   natlam2 $ \base pow ->
-    -- why does assoc matter?
-    natrec (S Z) (\prev res -> (Ap (Ap mult res) base)) pow
+    natrec (S Z) (\_prev res -> (Ap (Ap mult base) res)) pow
 
--- fact 4 = 4 * 3 * 2 * 1 = 24
--- fact 4 = 4 3 2 1
-
--- fact = lam Nat $ \n ->
---   natrec (S Z) (\prev r ->
---                  Ap
---                  (Ap mult r) (natrec (S Z) (\prev' r' -> Ap (Ap mult r) r') prev) ) n
-
-
--- fact: can't do it with iter! need rec.
--- fact =
---   lam Nat $ \n ->
---     Rec (S Z) (lam Nat $ \prev -> lam Nat $ \r ->
---                 Ap (Ap mult r) (iter (S Z) (lam Nat $ \) prev)) n
+fact =
+  lam Nat $ \n ->
+    natrec (S Z) (\prev r -> Ap (Ap mult (S prev)) r) n
 
 fac = \case
   0 -> 1
