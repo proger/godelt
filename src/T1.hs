@@ -15,16 +15,7 @@ import Debug.Trace
 
 -- * syntax
 
-data Name
-  = X Int
-    deriving (Eq, Ord)
-
-instance Show Name where show (X i) = "x" ++ show i
-
-x1 = X 1
-x2 = X 2
-x3 = X 3
-x4 = X 4
+type Name = Int
 
 data Syntax
   = Var Name
@@ -38,33 +29,17 @@ data Syntax
 -- Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
 maxBV :: Syntax -> Int
 maxBV = \case
-  Var _ -> 0
-  Lam (X n) _ _ -> n
-  Ap f a -> maxBV f `max` maxBV a
-  Z -> 0
-  S e -> maxBV e
+  Var _             -> 0
+  Lam n _ _         -> n
+  Ap f a            -> maxBV f `max` maxBV a
+  Z                 -> 0
+  S e               -> maxBV e
   Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
-
-sub :: Name -> Syntax -> Syntax -> Syntax
-sub n arg s = let go = sub n arg in case s of
-  Var n'
-    | n' == n   -> arg
-    | otherwise -> Var n'
-  Lam n' t b ->
-    Lam n' t (go b)
-  Ap f a ->
-    Ap (go f) (go a)
-  Z ->
-    Z
-  S k ->
-    S (go k)
-  Rec zero step arg' ->
-    Rec (go zero) (go step) (go arg')
 
 lam :: Type -> (Syntax -> Syntax) -> Syntax
 lam t f = Lam name t body
   where
-    name = X (maxBV body + 1)
+    name = maxBV body + 1
     body = f (Var name)
 
 -- * typechecker
@@ -124,9 +99,27 @@ resolve context n =
 intro :: Context -> Name -> Type -> Context
 intro c n t = Map.insert n t c
 
--- * eval
+-- * substitution
 
 ts m a = traceShow (m, a) a
+
+sub :: Name -> Syntax -> Syntax -> Syntax
+sub n arg s = let go = sub n arg in case s of
+  Var n'
+    | n' == n   -> arg
+    | otherwise -> Var n'
+  Lam n' t b ->
+    Lam n' t (go b)
+  Ap f a ->
+    Ap (go f) (go a)
+  Z ->
+    Z
+  S k ->
+    S (go k)
+  Rec zero step arg' ->
+    Rec (go zero) (go step) (go arg')
+
+-- * naive recursive eval
 
 eval = \case
   Z ->
@@ -156,6 +149,55 @@ eval = \case
   where
     apsub (Lam n _ e) a = sub n a e
     apsub f a = apsub (eval f) a
+
+-- * PFPL Dynamics-inspired eval
+
+data Eval
+  = Step Syntax
+  | Value
+    deriving Show
+
+op = \case
+  Z ->
+    Value
+  S e ->
+    case op e of
+      Value -> Value
+      Step e' -> Step (S e')
+  Lam _ _ _ ->
+    Value
+  Ap f a ->
+    case op f of
+      Step f' -> op (Ap f' a)
+      Value ->
+        case op a of
+          Step a' -> op (Ap f a')
+          Value ->
+            case f of
+              Lam n _ e -> Step (sub n a e)
+              _ -> error "stuck (ap)"
+  Rec zero step arg ->
+    case op arg of
+      Step arg' -> Step (Rec zero step arg')
+      Value ->
+        case op step of
+          Step step' -> Step (Rec zero step' arg)
+          Value ->
+            case step of
+              Lam npred _ (Lam nres _ b) ->
+                case arg of
+                  Z ->
+                    Step zero
+                  S nat ->
+                    Step (sub nres (Rec zero step nat) (sub npred nat b))
+                  _  -> error "stuck (rec)"
+              _ -> error $ "op rec-step: am i supposed to break down here? " ++ show step
+  _ -> error "stuck"
+
+run e =
+  case op e of
+    Value -> e
+    Step s -> run s
 
 -- * sugar
 
@@ -201,8 +243,6 @@ plus =
        (lam Nat S)
        y
 
--- TODO: prove mult mult' are equal
-
 mult =
   lam Nat $ \x ->
     lam Nat $ \y ->
@@ -228,10 +268,6 @@ fact =
   lam Nat $ \n ->
     natrec (S Z) (\prev r -> Ap (Ap mult (S prev)) r) n
 
-fac = \case
-  0 -> 1
-  n -> n * fac (n-1)
-
 count = \case
   S n -> 1 + count n
   Z -> 0
@@ -241,33 +277,26 @@ uncount = \case
   0 -> Z
   k -> S (uncount (k-1))
 
-weird1 = Ap Z Z
-weird2 = Ap (S Z) Z
-
--- | Church pairs: need untyped lambdas
--- pair = lam (\x -> lam (\y -> lam (\z -> (Ap z (Ap x y)))))
--- first  = lam (\p -> Ap p (lam (\x -> lam (\y -> x))))
--- second = lam (\p -> Ap p (lam (\x -> lam (\y -> y))))
--- zzp = Ap first (Ap (Ap pair Z) Z)
-
-data Id a b
-  = a :===: b
-    deriving Show
-
-suite = [ mult
-        , smth
-        , smth2
-        , smth3
-        --, (\(Ap (Lam _ _ t) _) -> t) smth2
-        --, smth4
-        , (Ap (Ap mult (uncount 2)) (uncount 4)) ]
+suite = [ ("mult", mult)
+        , ("smth", smth)
+        , ("smth2", smth2)
+        , ("smth3", smth3)
+        , ("double 3", (Ap double (uncount 3)))
+        , ("2+4", (Ap (Ap plus (uncount 2)) (uncount 4)))
+        , ("fact 4", (Ap fact (uncount 4)))
+        , ("2^4", (Ap (Ap exp (uncount 2)) (uncount 4)))
+        , ("2*4", (Ap (Ap mult (uncount 2)) (uncount 4)))
+          -- this one will fail with `run`
+        , ("2*'4", (Ap (Ap mult' (uncount 2)) (uncount 4)))
+        ]
 
 test =
-  let evalv e = e :===: (eval e) in
+  -- let evalv (tag, e) = (tag, e, run e) in
+  let evalv (tag, e) = (tag, e, eval e) in
   mapM_ (pprint . evalv) suite
 
 tytest =
-  let ty e = e :===: (typecheck e) in
+  let ty (tag, e) = (tag, e, (typecheck e)) in
   mapM_ (pprint . ty) suite
 
 pprint :: Show a => a -> IO ()
