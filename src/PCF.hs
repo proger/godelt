@@ -1,3 +1,5 @@
+-- | Plotkin's PCF: a partial language with general recursion and natural numbers
+
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
@@ -12,7 +14,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Debug.Trace
 
--- * syntax
+-- * Syntax
 
 type Name = Int
 
@@ -24,9 +26,12 @@ data Syntax
   | S Syntax
   | Ifz Syntax Syntax Syntax
   | Fixpoint Name Type Syntax
-  deriving (Show, Eq)
+    deriving (Show, Eq)
 
--- Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
+-- Lambda calculus-style function application associates to the left.
+infixl 2 :$:
+
+-- | Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
 maxBV :: Syntax -> Int
 maxBV = \case
   Var _          -> 0
@@ -46,11 +51,11 @@ defn cons t f = cons name t body
 lam = defn Lam
 fixpoint = defn Fixpoint
 
--- * typechecker
+-- * Typechecker
 
 data Type
   = Nat
-  | Parr Type Type
+  | Type :--\ Type
     deriving (Show, Eq)
 
 data Mismatch
@@ -81,7 +86,7 @@ ty context =
   Ifz z s nat ->
     let natT = next nat
         zeroT = next z
-        Parr prevT newT = next s
+        prevT :--\ newT = next s
     in match "ifz-rec-zero" zeroT newT $
        match "ifz-prev" prevT Nat $
        match "ifz-nat" natT Nat $
@@ -90,9 +95,9 @@ ty context =
   Lam n t s ->
     let left = t
         right = inext n t s
-    in Parr left right
+    in left :--\ right
   f :$: x ->
-    let Parr dom cod = next f
+    let dom :--\ cod = next f
     in match "ap-dom" dom (next x) cod
   Fixpoint n t s ->
     let left = t
@@ -209,16 +214,16 @@ run e =
     Value -> e
     Step s -> run s
 
--- * sugar
+-- * Sugar
 
 iter :: Syntax -> Syntax -> Syntax -> Syntax
 iter zero step arg =
   fixpoint
-    (Parr Nat Nat)
+    (Nat :--\ Nat)
     (\f -> lam Nat $ Ifz zero (lam Nat $ \npred -> step :$: (f :$: npred)))
   :$: arg
 
--- * examples
+-- * Examples
 
 -- | mult: same as in T1!
 mult =
@@ -234,7 +239,7 @@ mult =
 fact =
   lam Nat $ \x ->
     fixpoint
-      (Parr Nat Nat)
+      (Nat :--\ Nat)
       (\f ->
         lam Nat (\n ->
                   Ifz
@@ -243,7 +248,7 @@ fact =
                   n))
     :$: x
 
--- * test helpers
+-- * Test helpers
 
 unnat = \case
   S n -> 1 + unnat n

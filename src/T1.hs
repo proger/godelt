@@ -1,3 +1,5 @@
+-- | Godel's T: a total language with natural numbers
+
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
@@ -13,25 +15,28 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Debug.Trace
 
--- * syntax
+-- * Syntax
 
 type Name = Int
 
 data Syntax
   = Var Name
   | Lam Name Type Syntax
-  | Ap Syntax Syntax
+  | Syntax :$: Syntax
   | Z
   | S Syntax
   | Rec Syntax Syntax Syntax
   deriving (Show, Eq)
 
--- Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax
+-- Lambda calculus-style function application associates to the left.
+infixl 2 :$:
+
+-- | Axelsson & Claessen, Using Circular Programs for Higher-Order Syntax.
 maxBV :: Syntax -> Int
 maxBV = \case
   Var _             -> 0
   Lam n _ _         -> n
-  Ap f a            -> maxBV f `max` maxBV a
+  f :$: a           -> maxBV f `max` maxBV a
   Z                 -> 0
   S e               -> maxBV e
   Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
@@ -42,11 +47,11 @@ lam t f = Lam name t body
     name = maxBV body + 1
     body = f (Var name)
 
--- * typechecker
+-- * Typechecker
 
 data Type
   = Nat
-  | Arr Type Type
+  | Type :--> Type
     deriving (Show, Eq)
 
 data Mismatch
@@ -77,7 +82,7 @@ ty context =
     let argT = next arg
         zeroT = next zero
         stepT = next step
-        Arr prevT (Arr recT newT) = stepT
+        prevT :--> (recT :--> newT) = stepT
     in if recT /= zeroT then mismatch "iter-rec-zero" recT zeroT else
          if prevT /= Nat then mismatch "rec-prev" prevT Nat else
            if argT /= Nat then mismatch "iter-arg" argT Nat else
@@ -86,9 +91,9 @@ ty context =
   Lam n t s ->
     let left = t
         right = inext n t s
-    in Arr left right
-  Ap f x ->
-    let Arr dom cod = next f
+    in left :--> right
+  f :$: x ->
+    let dom :--> cod = next f
         gotDom = next x
     in if dom /= gotDom then mismatch "ap-dom" dom gotDom else cod
 
@@ -99,7 +104,7 @@ resolve context n =
 intro :: Context -> Name -> Type -> Context
 intro c n t = Map.insert n t c
 
--- * substitution
+-- * Substitution
 
 ts m a = traceShow (m, a) a
 
@@ -110,8 +115,8 @@ sub n arg s = let go = sub n arg in case s of
     | otherwise -> Var n'
   Lam n' t b ->
     Lam n' t (go b)
-  Ap f a ->
-    Ap (go f) (go a)
+  f :$: a ->
+    (go f) :$: (go a)
   Z ->
     Z
   S k ->
@@ -119,7 +124,7 @@ sub n arg s = let go = sub n arg in case s of
   Rec zero step arg' ->
     Rec (go zero) (go step) (go arg')
 
--- * naive recursive eval
+-- * Naive recursive eval
 
 eval = \case
   Z ->
@@ -128,17 +133,17 @@ eval = \case
     S (eval e)
   Var k ->
     Var k
-  Ap lam@(Lam _ _ _) a ->
+  lam@(Lam _ _ _) :$: a ->
     eval (apsub lam a)
-  Ap x a ->
-    eval (Ap (eval x) a)
+  x :$: a ->
+    eval (eval x :$: a)
   Rec zero _step Z ->
     eval zero
   Rec zero step (S k) ->
-    -- | iterator:
+    -- iterator:
     --   iter 0 u v → u
     --   iter (S t) u v → v(iter t u v)
-    -- | recursor:
+    -- recursor:
     --   0 u v → u
     --   R (S t) u v → v (R t u v) t
     eval (apsub (apsub step k) (eval (Rec zero step k)))
@@ -166,12 +171,12 @@ op = \case
       Step e' -> Step (S e')
   Lam _ _ _ ->
     Value
-  Ap f a ->
+  f :$: a ->
     case op f of
-      Step f' -> op (Ap f' a)
+      Step f' -> op (f' :$: a)
       Value ->
         case op a of
-          Step a' -> op (Ap f a')
+          Step a' -> op (f :$: a')
           Value ->
             case f of
               Lam n _ e -> Step (sub n a e)
@@ -199,7 +204,7 @@ run e =
     Value -> e
     Step s -> run s
 
--- * sugar
+-- * Sugar
 
 iter :: Syntax -> Syntax -> Syntax -> Syntax
 iter zero step arg =
@@ -214,17 +219,17 @@ natrec zero step arg =
              lam Nat $ \res ->
               step prev res) arg
 
--- * examples
+-- * Examples
 
 smth =
-  Ap (lam (Nat) (\x -> S (S (S x)))) Z
+  (lam (Nat) (\x -> S (S (S x)))) :$: Z
 
 smth2 =
-  Ap (lam (Nat) (\x -> S (S (S (ap x))))) Z
+  (lam (Nat) (\x -> S (S (S (ap x))))) :$: Z
   where
-    ap x = (Ap (lam (Nat) $ \_ -> x) x)
+    ap x = (lam (Nat) $ \_ -> x) :$: x
 
-smth3 = Ap (lam (Nat) (\x -> (lam Nat $ \_ -> x))) Z
+smth3 = (lam (Nat) (\x -> (lam Nat $ \_ -> x))) :$: Z
 
 smth4 = lam (Nat) $ \_ -> smth3
 
@@ -257,37 +262,39 @@ mult' =
     lam Nat $ \y ->
        iter
        Z
-       (Ap plus y)
+       (plus :$: y)
        x
 
 exp =
   natlam2 $ \base pow ->
-    natrec (S Z) (\_prev res -> (Ap (Ap mult base) res)) pow
+    natrec (S Z) (\_prev res -> ((mult :$: base) :$: res)) pow
 
 fact =
   lam Nat $ \n ->
-    natrec (S Z) (\prev r -> Ap (Ap mult (S prev)) r) n
+    natrec (S Z) (\prev r -> (mult :$: (S prev)) :$: r) n
 
-count = \case
-  S n -> 1 + count n
+-- * Test helpers
+
+unnat = \case
+  S n -> 1 + unnat n
   Z -> 0
-  e -> error $ "count: can't eval: " ++ show e
+  e -> error $ "unnat: can't eval: " ++ show e
 
-uncount = \case
+nat = \case
   0 -> Z
-  k -> S (uncount (k-1))
+  k -> S (nat (k-1))
 
 suite = [ ("mult", mult)
         , ("smth", smth)
         , ("smth2", smth2)
         , ("smth3", smth3)
-        , ("double 3", (Ap double (uncount 3)))
-        , ("2+4", (Ap (Ap plus (uncount 2)) (uncount 4)))
-        , ("fact 4", (Ap fact (uncount 4)))
-        , ("2^4", (Ap (Ap exp (uncount 2)) (uncount 4)))
-        , ("2*4", (Ap (Ap mult (uncount 2)) (uncount 4)))
+        , ("double 3", double :$: nat 3)
+        , ("2+4", (plus :$: nat 2) :$: nat 4)
+        , ("fact 4", fact :$: nat 4)
+        , ("2^4", (exp :$: nat 2) :$: nat 4)
+        , ("2*4", (mult :$: nat 2) :$: nat 4)
           -- this one will fail with `run`
-        , ("2*'4", (Ap (Ap mult' (uncount 2)) (uncount 4)))
+        , ("2*'4", (mult' :$: nat 2) :$: nat 4)
         ]
 
 test =

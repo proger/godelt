@@ -1,7 +1,8 @@
 name:                godelt
 version:             0.1.0.0
-synopsis:            Initial project template from stack
-description:         Please see README.md
+synopsis:            Compilers playground
+description:
+        Yay!
 homepage:            https://github.com/proger/godelt#readme
 license:             BSD3
 license-file:        LICENSE
