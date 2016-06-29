@@ -55,7 +55,7 @@ fixpoint = defn Fixpoint
 
 data Type
   = Nat
-  | Type :--\ Type
+  | Type :--\ Type -- ^ "harpoon" -- denotes partial function types
     deriving (Show, Eq)
 
 data Mismatch
