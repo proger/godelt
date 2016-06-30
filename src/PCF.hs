@@ -79,14 +79,15 @@ match rule l r next =
 ty context =
   let resolv = resolve context
       next = ty context
-      inext n t = ty (intro context n t) in \case
-  Z ->
-    Nat
-  S t ->
-    match "S" (next t) Nat Nat
-  Var n ->
-    resolv n
-  Ifz z s nat ->
+      inext n t = ty (intro context n t)
+  in \case
+  Z              -> Nat
+  S t            -> match "S" (next t) Nat Nat
+  Var n          -> resolv n
+  Lam n t s      -> let left = t; right = inext n t s in left :--\ right
+  f :$: x        -> let dom :--\ cod = next f in match "ap-dom" dom (next x) cod
+  Fixpoint n t s -> let left = t; right = inext n t s in match "fixpoint" left right right
+  Ifz z s nat    ->
     let natT = next nat
         zeroT = next z
         prevT :--\ newT = next s
@@ -95,17 +96,6 @@ ty context =
        match "ifz-nat" natT Nat $
        match "ifz-zero-new" zeroT newT $
        newT
-  Lam n t s ->
-    let left = t
-        right = inext n t s
-    in left :--\ right
-  f :$: x ->
-    let dom :--\ cod = next f
-    in match "ap-dom" dom (next x) cod
-  Fixpoint n t s ->
-    let left = t
-        right = inext n t s
-    in match "fixpoint" left right right
 
 resolve :: Context -> Name -> Type
 resolve context n =
@@ -158,20 +148,20 @@ data Eval a
   | Value
     deriving (Show, Functor)
 
--- | Perform one evaluation rule.
---   Gets stuck in cases (including looping) that are rejected by the type checker.
-op = \case
-  Z                             -> Value
-  S e                           -> fmap S (op e)
-  Lam _ _ _                     -> Value
-  f@(Lam n _ e) :$: a           -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
-  f :$: a                       -> fmap (:$: a) (op f)
-  fx@(Fixpoint _ _ _)           -> Step (subfix fx)
-  Ifz zero (Lam _ _ _) Z        -> Step zero
-  Ifz _ (Lam npred _ s) (S nat) -> Step (sub npred nat s)
-  Ifz zero step@(Lam _ _ _) arg -> fmap (\arg' -> Ifz zero step arg') (op arg)
-  Ifz zero step arg             -> fmap (\step' -> Ifz zero step' arg) (op step)
-  _                             -> error "stuck"
+-- | Apply one evaluation rule.
+op = let notLam = \case Lam _ _ _ -> False; _ -> True in \case
+  Z                               -> Value
+  S e                             -> fmap S (op e)
+  Lam _ _ _                       -> Value
+  f@(Lam n _ e) :$: a             -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
+  f :$: a                         -> fmap (:$: a) (op f)
+  fx@(Fixpoint _ _ _)             -> Step (subfix fx)
+  Ifz zero (Lam _ _ _) Z          -> Step zero
+  Ifz _ (Lam npred _ s) (S nat)   -> Step (sub npred nat s)
+  Ifz zero step@(Lam _ _ _) arg   -> fmap (\arg' -> Ifz zero step arg') (op arg)
+  Ifz zero step arg | notLam step -> fmap (\step' -> Ifz zero step' arg) (op step)
+  _                               -> error "stuck"
+
 
 -- | Same as 'Data.Maybe.maybe'.
 eval :: b -> (a -> b) -> Eval a -> b
