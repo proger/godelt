@@ -1,11 +1,12 @@
--- | Plotkin's PCF: a partial language with general recursion and natural numbers
-
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
                 -fno-warn-unused-do-bind
                 -fno-warn-unused-imports
                 -fno-warn-name-shadowing #-}
+
+-- | Plotkin's PCF: a partial language with general recursion and natural numbers
 
 module PCF where
 
@@ -24,8 +25,9 @@ data Syntax
   | Syntax :$: Syntax
   | Z
   | S Syntax
-  | Ifz Syntax Syntax Syntax
   | Fixpoint Name Type Syntax
+  | Ifz Syntax Syntax Syntax -- ^ The third argument is not supposed to be a lambda
+                             --   in the original PCF, this impl is relaxed.
     deriving (Show, Eq)
 
 -- Lambda calculus-style function application associates to the left.
@@ -65,6 +67,7 @@ data Mismatch
 type Context
   = Map Name Type
 
+-- | 'error'\'s when typechecking fails.
 typecheck :: Syntax -> Type
 typecheck = ty Map.empty
 
@@ -122,20 +125,13 @@ subfix (Fixpoint n t b) =
   let
     bump :: (Name -> Name) -> Syntax -> Syntax
     bump f = let go = bump f in \case
-      Var n' ->
-        Var (f n')
-      Lam n' t b ->
-        Lam (f n') t (go b)
-      Fixpoint n' t b ->
-        Fixpoint (f n') t (go b)
-      l :$: r ->
-        (go l) :$: (go r)
-      Z ->
-        Z
-      S k ->
-        S (go k)
-      Ifz z s nat ->
-        Ifz (go z) (go s) (go nat)
+      Var n'          -> Var (f n')
+      Lam n' t b      -> Lam (f n') t (go b)
+      Fixpoint n' t b -> Fixpoint (f n') t (go b)
+      l :$: r         -> (go l) :$: (go r)
+      Z               -> Z
+      S k             -> S (go k)
+      Ifz z s nat     -> Ifz (go z) (go s) (go nat)
 
     oldmax = maxBV b + 1
     b' = bump (+ oldmax) b
@@ -146,73 +142,49 @@ subfix _ = error "stuck: subfix"
 sub :: Name -> Syntax -> Syntax -> Syntax
 sub n arg s = let go = sub n arg in case s of
   Var n'
-    | n' == n   -> arg
-    | otherwise -> Var n'
-  Lam n' t b ->
-    Lam n' t (go b)
-  Fixpoint n' t b ->
-    Fixpoint n' t (go b)
-  f :$: a ->
-    (go f) :$: (go a)
-  Z ->
-    Z
-  S k ->
-    S (go k)
-  Ifz z s nat ->
-    Ifz (go z) (go s) (go nat)
+    | n' == n     -> arg
+    | otherwise   -> Var n'
+  Lam n' t b      -> Lam n' t (go b)
+  Fixpoint n' t b -> Fixpoint n' t (go b)
+  f :$: a         -> (go f) :$: (go a)
+  Z               -> Z
+  S k             -> S (go k)
+  Ifz z s nat     -> Ifz (go z) (go s) (go nat)
 
 -- * PFPL Dynamics-inspired eval
 
-data Eval
-  = Step Syntax
+data Eval a
+  = Step a
   | Value
-    deriving Show
+    deriving (Show, Functor)
 
+-- | Perform one evaluation rule.
+--   Gets stuck in cases (including looping) that are rejected by the type checker.
 op = \case
-  Z ->
-    Value
-  S e ->
-    case op e of
-      Value -> Value
-      Step e' -> Step (S e')
-  Lam _ _ _ ->
-    Value
-  f :$: a ->
-    case op f of
-      Step f' -> op (f' :$: a)
-      Value ->
-        case op a of
-          Step a' -> op (f :$: a')
-          Value ->
-            case f of
-              Lam n _ e -> Step (sub n a e)
-              _ -> error "stuck (ap)"
-  Ifz zero step arg ->
-    case op arg of
-      Step arg' -> Step (Ifz zero step arg')
-      Value ->
-        case op step of
-          Step step' -> Step (Ifz zero step' arg)
-          Value ->
-            case step of
-              Lam npred _ s ->
-                case arg of
-                  Z ->
-                    Step zero
-                  S nat ->
-                    Step (sub npred nat s)
-                  _  -> error "stuck (rec)"
-              _ -> error $ "op ifz-step: stuck"
-  fx@(Fixpoint _ _ _) ->
-    Step (subfix fx)
-  _ -> error "stuck"
+  Z                             -> Value
+  S e                           -> fmap S (op e)
+  Lam _ _ _                     -> Value
+  f@(Lam n _ e) :$: a           -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
+  f :$: a                       -> fmap (:$: a) (op f)
+  fx@(Fixpoint _ _ _)           -> Step (subfix fx)
+  Ifz zero (Lam _ _ _) Z        -> Step zero
+  Ifz _ (Lam npred _ s) (S nat) -> Step (sub npred nat s)
+  Ifz zero step@(Lam _ _ _) arg -> fmap (\arg' -> Ifz zero step arg') (op arg)
+  Ifz zero step arg             -> fmap (\step' -> Ifz zero step' arg) (op step)
+  _                             -> error "stuck"
 
-op' s = (\(Step x) -> x) (op s)
+-- | Same as 'Data.Maybe.maybe'.
+eval :: b -> (a -> b) -> Eval a -> b
+eval value step = \case
+  Step s -> step s
+  Value -> value
 
-run e =
-  case op e of
-    Value -> e
-    Step s -> run s
+-- | Perform reduction steps. Assumes the code passed the type checker.
+run :: Syntax -> Syntax
+run e = eval e run (op e)
+
+op' :: Syntax -> Syntax
+op' = eval undefined id . op
 
 -- * Sugar
 
