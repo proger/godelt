@@ -10,6 +10,8 @@
 
 module PCF where
 
+import Prelude hiding (gcd, subtract)
+import Data.Function
 import Text.Show.Pretty (ppShow)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -59,6 +61,8 @@ data Type
   = Nat
   | Type :--\ Type -- ^ "harpoon" -- denotes partial function types
     deriving (Show, Eq)
+
+infixr 2 :--\
 
 data Mismatch
   = Mismatch String Type Type
@@ -176,14 +180,26 @@ run e = eval e run (op e)
 op' :: Syntax -> Syntax
 op' = eval undefined id . op
 
--- * Sugar
+-- * Sugar / macros
 
+-- | Simulates 'T1.iter'.
 iter :: Syntax -> Syntax -> Syntax -> Syntax
 iter zero step arg =
   fixpoint
     (Nat :--\ Nat)
     (\f -> lam Nat $ Ifz zero (lam Nat $ \npred -> step :$: (f :$: npred)))
   :$: arg
+
+lamn :: (Syntax -> Syntax) -> Syntax
+lamn = lam Nat
+
+-- | > ifz pred then else
+ifz :: Syntax -> Syntax -> (Syntax -> Syntax) -> Syntax
+ifz i t e = Ifz t (lamn e) i
+
+-- | Subtraction macro.
+(/-\) :: Syntax -> Syntax -> Syntax
+m /-\ n = subtract :$: m :$: n
 
 -- * Examples
 
@@ -210,6 +226,49 @@ fact =
                   n))
     :$: x
 
+-- | Greater or equal.
+gte :: Syntax
+gte =
+  fixpoint (Nat :--\ Nat :--\ Nat)
+    (\f ->
+      lamn (\x ->
+        lamn (\y ->
+               ifz x
+               (ifz y yes (const no))
+               (\x' -> (ifz y yes (f :$: x' :$:))))))
+  where
+    yes = S Z
+    no = Z
+
+subtract :: Syntax
+subtract =
+  fixpoint (Nat :--\ Nat :--\ Nat)
+    (\f ->
+      lamn (\x ->
+        lamn (\y ->
+               ifz y
+               (ifz x Z S)
+               (\y' -> (ifz x y' (\x' -> f :$: x' :$: y'))))))
+
+-- | Greatest common divisor.
+--
+-- > ggcd f m n =
+-- >  if m == n then m else if m > n
+-- >                        then f (m-n) n
+-- >                        else f m (n-m)
+gcd =
+  fixpoint (Nat :--\ Nat :--\ Nat)
+    (\f -> lamn (\m -> lamn (\n ->
+      ifz n
+      m
+      (const
+       (ifz m
+        n
+        (const
+         (ifz (gte :$: m :$: n)
+          ({-n >  m-} f :$: m :$: (n /-\ m))
+          ({-n <= m-} const $ f :$: (m /-\ n) :$: n))))))))
+
 -- * Test helpers
 
 unnat = \case
@@ -223,6 +282,8 @@ nat = \case
 
 suite = [ ("fact 4", fact :$: nat 4)
         , ("5 * 6", mult :$: nat 5 :$: nat 6)
+        , ("14 - 3", nat 14 /-\ nat 3)
+        , ("gcd 14 21", gcd :$: nat 14 :$: nat 21)
         ]
 
 test =
