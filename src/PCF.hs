@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
@@ -16,6 +15,8 @@ import Text.Show.Pretty (ppShow)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Debug.Trace
+
+import Godel.Eval
 
 -- * Syntax
 
@@ -147,12 +148,8 @@ sub n arg s = let go = sub n arg in case s of
 
 -- * PFPL Dynamics-inspired eval
 
-data Eval a
-  = Step a
-  | Value
-    deriving (Show, Functor)
-
 -- | Apply one evaluation rule.
+op :: Syntax -> Eval Syntax
 op = let notLam = \case Lam _ _ _ -> False; _ -> True in \case
   Z                               -> Value
   S e                             -> fmap S (op e)
@@ -165,20 +162,6 @@ op = let notLam = \case Lam _ _ _ -> False; _ -> True in \case
   Ifz zero step@(Lam _ _ _) arg   -> fmap (\arg' -> Ifz zero step arg') (op arg)
   Ifz zero step arg | notLam step -> fmap (\step' -> Ifz zero step' arg) (op step)
   _                               -> error "stuck"
-
-
--- | Same as 'Data.Maybe.maybe'.
-eval :: b -> (a -> b) -> Eval a -> b
-eval value step = \case
-  Step s -> step s
-  Value -> value
-
--- | Perform reduction steps. Assumes the code passed the type checker.
-run :: Syntax -> Syntax
-run e = eval e run (op e)
-
-op' :: Syntax -> Syntax
-op' = eval undefined id . op
 
 -- * Sugar / macros
 
@@ -289,8 +272,8 @@ suite = [ ("fact 4", fact :$: nat 4)
 test =
   let
     cute exp = case typecheck exp of
-      Nat -> show (unnat (run exp))
-      _ -> show (run exp)
+      Nat -> show (unnat (run op exp))
+      _ -> show (run op exp)
     evalv (tag, e) = (tag, e, cute e)
   in mapM_ (pprint . evalv) suite
 
