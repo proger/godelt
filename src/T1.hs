@@ -131,10 +131,10 @@ op = \case
   Lam _ _ _                             -> Value
   f@(Lam n _ e) :$: a                   -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
   f :$: a                               -> fmap (:$: a) (op f)
-  Rec zero _ Z                          -> Step zero
+  Rec z _ Z                             -> Step z
   Rec z st@(Lam p _ (Lam r _ b)) (S pn) -> Step (sub r (Rec z st pn) (sub p pn b))
-  Rec zero st@(Lam _ _ (Lam _ _ _)) nat -> fmap (\nat' -> Rec zero st nat') (op nat)
-  Rec zero st nat                       -> fmap (\st' -> Rec zero st' nat) (op st)
+  Rec z st@(Lam _ _ (Lam _ _ _)) nat    -> fmap (\nat' -> Rec z st nat') (op nat)
+  Rec z st nat                          -> fmap (\st' -> Rec z st' nat) (op st)
   _                                     -> error "stuck"
 
 -- * Sugar
