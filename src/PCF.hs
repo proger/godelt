@@ -12,11 +12,10 @@ module PCF where
 import Prelude hiding (gcd, subtract)
 import Data.Function
 import Text.Show.Pretty (ppShow)
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Debug.Trace
 
 import Godel.Eval
+import Godel.Typecheck
 
 -- * Syntax
 
@@ -65,21 +64,9 @@ data Type
 
 infixr 2 :--\
 
-data Mismatch
-  = Mismatch String Type Type
-    deriving (Show)
-
-type Context
-  = Map Name Type
-
 -- | 'error'\'s when typechecking fails.
 typecheck :: Syntax -> Type
-typecheck = ty Map.empty
-
-match rule l r next =
-  if l /= r
-  then error (show (Mismatch rule l r))
-  else next
+typecheck = ty emptyContext
 
 ty context =
   let resolv = resolve context
@@ -101,13 +88,6 @@ ty context =
        match "ifz-nat" natT Nat $
        match "ifz-zero-new" zeroT newT $
        newT
-
-resolve :: Context -> Name -> Type
-resolve context n =
-  maybe (error "context fail") id (Map.lookup n context)
-
-intro :: Context -> Name -> Type -> Context
-intro c n t = Map.insert n t c
 
 -- * substitution
 
