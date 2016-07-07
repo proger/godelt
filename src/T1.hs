@@ -125,11 +125,12 @@ sub n arg s = let go = sub n arg in case s of
 
 -- * PFPL Dynamics-inspired eval
 
+op :: Syntax -> Eval Syntax
 op = \case
-  Z                                     -> Value
+  Z                                     -> Value Z
   S e                                   -> S <$> op e
-  Lam _ _ _                             -> Value
-  f@(Lam n _ e) :$: a                   -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
+  lam@(Lam _ _ _)                       -> Value lam
+  f@(Lam n _ e) :$: a                   -> eval (op . (f :$:)) (const (Step (sub n a e))) (op a)
   f :$: a                               -> fmap (:$: a) (op f)
   Rec z _ Z                             -> Step z
   Rec z st@(Lam p _ (Lam r _ b)) (S pn) -> Step (sub r (Rec z st pn) (sub p pn b))
@@ -156,8 +157,13 @@ natrec zero step arg =
 
 -- * Examples
 
-smth =
-  (lam (Nat) (\x -> S (S (S x)))) :$: Z
+appapp =
+  (lam (Nat :--> Nat) (\x -> x) :$: smthlam) :$: Z
+
+smthlam =
+  (lam (Nat) (\x -> S (S (S x))))
+
+smth = smthlam :$: Z
 
 smth2 =
   (lam (Nat) (\x -> S (S (S (ap x))))) :$: Z

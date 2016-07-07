@@ -1,20 +1,20 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 
--- | Functions for implementing PFPL Dynamics-inspired eval.
+-- | Functions for implementing small-step (structural) operational semantics.
 
 module Godel.Eval where
 
 data Eval a
   = Step a
-  | Value
+  | Value a
     deriving (Show, Functor)
 
--- | Same as 'Data.Maybe.maybe'.
-eval :: b -> (a -> b) -> Eval a -> b
-eval value step = \case
-  Step s -> step s
-  Value -> value
+-- | Almost the same as 'Data.Either.either'.
+eval :: (a -> r) -> (a -> r) -> Eval a -> r
+eval step value = \case
+  Step a -> step a
+  Value a -> value a
 
 run :: (a -> Eval a) -> a -> a
-run op e = eval e (run op) (op e)
+run step = eval (run step) id . step

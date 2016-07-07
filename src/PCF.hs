@@ -131,10 +131,10 @@ sub n arg s = let go = sub n arg in case s of
 -- | Apply one evaluation rule.
 op :: Syntax -> Eval Syntax
 op = let notLam = \case Lam _ _ _ -> False; _ -> True in \case
-  Z                               -> Value
+  Z                               -> Value Z
   S e                             -> fmap S (op e)
-  Lam _ _ _                       -> Value
-  f@(Lam n _ e) :$: a             -> eval (Step (sub n a e)) (op . (f :$:)) (op a)
+  f@(Lam _ _ _)                   -> Value f
+  f@(Lam n _ e) :$: a             -> eval (op . (f :$:)) (const (Step (sub n a e))) (op a)
   f :$: a                         -> fmap (:$: a) (op f)
   fx@(Fixpoint _ _ _)             -> Step (subfix fx)
   Ifz zero (Lam _ _ _) Z          -> Step zero
