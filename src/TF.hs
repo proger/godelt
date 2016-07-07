@@ -134,7 +134,7 @@ step1 = \case
   Rec (zh, _) x y (sh, _) (_, Value (Fix (S e))) -> Step (sub y (Fix (Rec zh x y sh e)) (sub x e sh))
 
 -- | Perform one eval step, useful in ghci.
-ds = meh . step1 where
+ds = meh . step where
   meh = \case
     Value a -> a
     Step a -> a
