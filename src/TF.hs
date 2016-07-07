@@ -126,8 +126,8 @@ step1 :: SyntaxF (Syntax, Eval1 Syntax) -> Eval1 Syntax
 step1 = \case
   Z                                             -> Value (Fix Z)
   S (h, Value _)                                -> Value (Fix (S h))
-  Lam n t (h, e)                                -> Value (Fix (Lam n t h))
-  S (_, (Step x))                               -> Step (Fix (S x))
+  Lam n t (h, _)                                -> Value (Fix (Lam n t h))
+  S (_, Step x)                                 -> Step (Fix (S x))
   App (_,               Step s)  (h, _)         -> Step (Fix (App s h))
   App (Fix (Lam n t e), Value _) (_, Step a)    -> Step (Fix (App (Fix (Lam n t e)) a))
   App (Fix (Lam n _ e), Value _) (a, Value _)   -> Step (sub n a e)
