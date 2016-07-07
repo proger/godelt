@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
                 -fno-warn-unused-do-bind
@@ -9,11 +10,42 @@
 
 module T1 where
 
-import Prelude hiding (exp)
-import Text.Show.Pretty (ppShow)
-import Data.Map (Map)
+import Prelude hiding (succ)
 import qualified Data.Map as Map
-import Debug.Trace
+import Data.Map (Map)
+
+import Spec.T
+
+data T1
+
+instance SystemT T1 where
+
+  type Syn T1 = Syntax
+
+  ($:) = (:$:)
+  zero = Z
+  succ = S
+
+  lam t f = Lam name t body
+    where
+      name = maxBV body + 1
+      body = f (Var name)
+
+  -- XXX:
+  rec zero step arg =
+    Rec zero (lam Nat $ \prev -> lam Nat $ \res -> step prev res) arg
+
+  unnat = \case
+    S n -> 1 + unnat n
+    Z -> 0
+    e -> error $ "unnat: can't eval: " ++ show e
+
+  nat = \case
+    0 -> Z
+    k -> S (nat (k-1))
+
+  typecheck = typecheck'
+  beta = eval
 
 -- * Syntax
 
@@ -41,18 +73,7 @@ maxBV = \case
   S e               -> maxBV e
   Rec zero step arg -> maxBV zero `max` maxBV step `max` maxBV arg
 
-lam :: Type -> (Syntax -> Syntax) -> Syntax
-lam t f = Lam name t body
-  where
-    name = maxBV body + 1
-    body = f (Var name)
-
 -- * Typechecker
-
-data Type
-  = Nat
-  | Type :--> Type
-    deriving (Show, Eq)
 
 data Mismatch
   = Mismatch String Type Type
@@ -61,8 +82,8 @@ data Mismatch
 type Context
   = Map Name Type
 
-typecheck :: Syntax -> Type
-typecheck = ty Map.empty
+typecheck' :: Syntax -> Type
+typecheck' = ty Map.empty
 
 die = error . show
 mismatch s l r = die (Mismatch s l r)
@@ -105,8 +126,6 @@ intro :: Context -> Name -> Type -> Context
 intro c n t = Map.insert n t c
 
 -- * Substitution
-
-ts m a = traceShow (m, a) a
 
 sub :: Name -> Syntax -> Syntax -> Syntax
 sub n arg s = let go = sub n arg in case s of
@@ -203,115 +222,3 @@ run e =
   case op e of
     Value -> e
     Step s -> run s
-
--- * Sugar
-
-iter :: Syntax -> Syntax -> Syntax -> Syntax
-iter zero step arg =
-  Rec zero (lam Nat $ \_prev -> step) arg
-
-natlam2 :: (Syntax -> Syntax -> Syntax) -> Syntax
-natlam2 f = lam Nat $ \a -> lam Nat $ \b -> f a b
-
-natrec :: Syntax -> (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
-natrec zero step arg =
-  Rec zero (lam Nat $ \prev ->
-             lam Nat $ \res ->
-              step prev res) arg
-
--- * Examples
-
-appapp =
-  (lam (Nat :--> Nat) (\x -> x) :$: smthlam) :$: Z
-
-smthlam =
-  (lam (Nat) (\x -> S (S (S x))))
-
-smth = smthlam :$: Z
-
-smth2 =
-  (lam (Nat) (\x -> S (S (S (ap x))))) :$: Z
-  where
-    ap x = (lam (Nat) $ \_ -> x) :$: x
-
-smth3 = (lam (Nat) (\x -> (lam Nat $ \_ -> x))) :$: Z
-
-smth4 = lam (Nat) $ \_ -> smth3
-
-rcount =
-  lam Nat $ \n -> iter Z (lam Nat $ \res -> res) n
-
-double =
-  lam Nat $ \n ->
-    iter Z (lam Nat $ \res -> S (S res)) n
-
-plus =
-  lam Nat $ \x ->
-    lam Nat $ \y ->
-       iter
-       x
-       (lam Nat S)
-       y
-
-mult =
-  lam Nat $ \x ->
-    lam Nat $ \y ->
-       iter
-       Z
-       (lam Nat $ \res ->
-         iter res (lam Nat S) y)
-       x
-
-mult' =
-  lam Nat $ \x ->
-    lam Nat $ \y ->
-       iter
-       Z
-       (plus :$: y)
-       x
-
-exp =
-  natlam2 $ \base pow ->
-    natrec (S Z) (\_prev res -> ((mult :$: base) :$: res)) pow
-
-fact =
-  lam Nat $ \n ->
-    natrec (S Z) (\prev r -> (mult :$: (S prev)) :$: r) n
-
--- * Test helpers
-
-unnat = \case
-  S n -> 1 + unnat n
-  Z -> 0
-  e -> error $ "unnat: can't eval: " ++ show e
-
-nat = \case
-  0 -> Z
-  k -> S (nat (k-1))
-
-suite = [ ("mult", mult)
-        , ("smth", smth)
-        , ("smth2", smth2)
-        , ("smth3", smth3)
-        , ("double 3", double :$: nat 3)
-        , ("2+4", (plus :$: nat 2) :$: nat 4)
-        , ("fact 4", fact :$: nat 4)
-        , ("2^4", (exp :$: nat 2) :$: nat 4)
-        , ("2*4", (mult :$: nat 2) :$: nat 4)
-          -- this one will fail with `run`
-        , ("2*'4", (mult' :$: nat 2) :$: nat 4)
-        ]
-
-test =
-  -- let evalv (tag, e) = (tag, e, run e) in
-  let evalv (tag, e) = (tag, e, eval e) in
-  mapM_ (pprint . evalv) suite
-
-tytest =
-  let ty (tag, e) = (tag, e, (typecheck e)) in
-  mapM_ (pprint . ty) suite
-
-pprint :: Show a => a -> IO ()
-pprint a = do
-  (putStrLn . ppShow) a
-  putStrLn ""

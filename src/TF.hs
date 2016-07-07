@@ -1,6 +1,9 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeFamilies #-}
+
+{-# LANGUAGE InstanceSigs #-}
 
 {-# OPTIONS_GHC -fno-warn-type-defaults
                 -fno-warn-missing-signatures
@@ -12,12 +15,50 @@
 
 module TF where
 
-import Prelude hiding (exp, maxBound, succ)
-import Text.Show.Pretty (ppShow)
-
+import Prelude hiding (succ, maxBound)
 import Godel.Recursion
 import Godel.Typecheck
 import Godel.Eval
+
+import Spec.T
+
+data TF
+
+instance SystemT TF where
+   type Syn TF = Fix SyntaxF
+
+   typecheck = typecheck'
+   beta = run step
+
+   f $: a = Fix (App f a)
+
+   zero = Fix Z
+   succ = Fix . S
+
+   lam :: Type -> (Syntax -> Syntax) -> Syntax
+   lam t f = Fix (Lam name t body)
+     where
+       name = maxBV body + 1
+       body = f (Fix (Var name))
+
+   lamn :: (Syntax -> Syntax) -> Syntax
+   lamn = lam Nat
+
+   rec :: Syntax -> (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
+   rec zero step arg = Fix (Rec zero x y body arg)
+     where
+       maxBody = maxBV body
+       (x, y) = (maxBody + 2, maxBody + 1)
+       body = step (Fix (Var x)) (Fix (Var y))
+
+   unnat = \case
+     (Fix (S n)) -> 1 + unnat n
+     Fix Z       -> 0
+     e           -> error $ "unnat: can't eval: " ++ show e
+
+   nat = \case
+     0 -> zero
+     k -> succ (nat (k-1))
 
 -- * Syntax
 
@@ -34,11 +75,6 @@ data SyntaxF a
 
 type Syntax = Fix SyntaxF
 
--- | Lambda calculus-style function application.
---   Associates to the left.
-f $: a = Fix (App f a)
-infixl 2 $:
-
 maxBound :: SyntaxF Int -> Int
 maxBound = \case
   Var _              -> 0
@@ -50,42 +86,12 @@ maxBound = \case
 
 maxBV = cata maxBound
 
-lam :: Type -> (Syntax -> Syntax) -> Syntax
-lam t f = Fix (Lam name t body)
-  where
-    name = maxBV body + 1
-    body = f (Fix (Var name))
-
-natlam2 :: (Syntax -> Syntax -> Syntax) -> Syntax
-natlam2 f = lamn $ \a -> lamn $ \b -> f a b
-
-lamn = lam Nat
-succ = Fix . S
-zero = Fix Z
-
-rec :: Syntax ->  (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
-rec zero step arg = Fix (Rec zero x y body arg)
-  where
-    maxBody = maxBV body
-    (x, y) = (maxBody + 2, maxBody + 1)
-    body = step (Fix (Var x)) (Fix (Var y))
-
-iter :: Syntax -> (Syntax -> Syntax) -> Syntax -> Syntax
-iter zero step arg = rec zero (\_prev -> step) arg
-
 -- * Typechecker
-
-data Type
-  = Nat
-  | Type :--> Type
-    deriving (Show, Eq)
-
-infixr 2 :-->
 
 type Ctx = Context Name Type
 
-typecheck :: Syntax -> Type
-typecheck = hata' ty emptyContext
+typecheck' :: Syntax -> Type
+typecheck' = hata' ty emptyContext
 
 -- | Algebra for a typechecking step.
 ty :: Ctx -> SyntaxF Type -> (Ctx, Type)
@@ -143,103 +149,3 @@ ds = meh . step where
   meh = \case
     Value a -> a
     Step a -> a
-
--- * Examples
-
-appapp =
-  (lam (Nat :--> Nat) (\x -> x) $: smthlam) $: zero
-
-smthlam =
-  lam (Nat) (\x -> succ (succ (succ x)))
-
-smth =
-  smthlam $: zero
-
-smth2 =
-  (lam (Nat) (\x -> succ (succ (succ (ap x))))) $: zero
-  where
-    ap x = (lam (Nat) $ \_ -> x) $: x
-
-smth3 = (lam (Nat) (\x -> (lamn $ \_ -> x))) $: zero
-
-smth4 = lam (Nat) $ \_ -> smth3
-
-rcount =
-  lamn $ \n -> iter zero (\res -> res) n
-
-double =
-  lamn $ \n ->
-    iter zero (\res -> succ (succ res)) n
-
-plus =
-  lamn $ \x ->
-    lamn $ \y ->
-       iter
-       x
-       succ
-       y
-
-mult =
-  lamn $ \x ->
-    lamn $ \y ->
-       iter
-       zero
-       (\res ->
-         iter res succ y)
-       x
-
-mult' =
-  lamn $ \x ->
-    lamn $ \y ->
-       iter
-       zero
-       (\r -> plus $: y $: r)
-       x
-
-exp =
-  natlam2 $ \base pow ->
-    rec (succ zero) (\_prev res -> ((mult $: base) $: res)) pow
-
-fact =
-  lamn $ \n ->
-    rec (succ zero) (\prev r -> (mult $: (succ prev)) $: r) n
-
--- * Test helpers
-
-unnat = \case
-  (Fix (S n)) -> 1 + unnat n
-  Fix Z       -> 0
-  e           -> error $ "unnat: can't eval: " ++ show e
-
-nat = \case
-  0 -> zero
-  k -> succ (nat (k-1))
-
-suite = [ ("mult", mult)
-        , ("appapp", appapp)
-        , ("smth", smth)
-        , ("smth2", smth2)
-        , ("smth3", smth3)
-        , ("double 3", double $: nat 3)
-        , ("2+4", (plus $: nat 2) $: nat 4)
-        , ("fact 4", fact $: nat 4)
-        , ("2^4", (exp $: nat 2) $: nat 4)
-        , ("2*4", (mult $: nat 2) $: nat 4)
-        , ("2*'4", (mult' $: nat 2) $: nat 4)
-        ]
-
-test = let
-  cute exp = case typecheck exp of
-      Nat -> show (unnat (run step exp))
-      _ -> show (run step exp)
-  evalv (tag, e) = (tag, e, cute e)
-  in mapM_ (pprint . evalv) suite
-
-tytest =
-  let ty (tag, e) = (tag, e, (typecheck e)) in
-  mapM_ (pprint . ty) suite
-
-pprint :: Show a => a -> IO ()
-pprint a = do
-  (putStrLn . ppShow) a
-  putStrLn ""
