@@ -128,7 +128,7 @@ sub n arg s = let go = sub n arg in case s of
 
 -- * PFPL Dynamics-inspired eval
 
--- | Apply one evaluation rule. XXX: b0rken
+-- | Apply one evaluation rule.
 op :: Syntax -> Eval1 Syntax
 op = let notLam = \case Lam _ _ _ -> False; _ -> True in \case
   Z                               -> Value Z
@@ -251,7 +251,7 @@ suite = [ ("fact 4", fact :$: nat 4)
 
 test =
   let
-    run op = eval (run op) id . op
+    run op e = eval (run op) (const e) (op e)
     cute exp = case typecheck exp of
       Nat -> show (unnat (run op exp))
       _ -> show (run op exp)

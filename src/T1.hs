@@ -125,7 +125,8 @@ sub n arg s = let go = sub n arg in case s of
 
 -- * Small-step operational semantics
 
-op :: Syntax -> Eval Syntax
+-- XXX: b0rken?
+op :: Syntax -> Eval1 Syntax
 op = \case
   Z                                     -> Value Z
   S e                                   -> S <$> op e
@@ -239,9 +240,10 @@ suite = [ ("mult", mult)
         ]
 
 test =
-  -- let evalv (tag, e) = (tag, e, run e) in
-  let evalv (tag, e) = (tag, e, run op e) in
-  mapM_ (pprint . evalv) suite
+  let
+    run op e = eval (run op) (const e) (op e)
+    evalv (tag, e) = (tag, e, run op e)
+  in mapM_ (pprint . evalv) suite
 
 tytest =
   let ty (tag, e) = (tag, e, (typecheck e)) in
