@@ -1,20 +1,28 @@
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 
 -- | Functions for implementing small-step (structural) operational semantics.
 
 module Godel.Eval where
 
-data Eval a
-  = Step a
-  | Value a
-    deriving (Show, Functor)
+import Godel.Recursion
+
+data Eval v s
+  = Step s
+  | Value v
+    deriving (Show)
+
+instance Functor (Eval s) where
+  fmap f (Step s)  = Step (f s)
+  fmap _ (Value v) = Value v
 
 -- | Almost the same as 'Data.Either.either'.
-eval :: (a -> r) -> (a -> r) -> Eval a -> r
+eval :: (s -> r) -> (v -> r) -> Eval v s -> r
 eval step value = \case
   Step a -> step a
   Value a -> value a
 
-run :: (a -> Eval a) -> a -> a
-run step = eval (run step) id . step
+run :: Coalgebra (Eval a) b -> b -> a
+run = hylo drop
+  where
+    drop (Step k) = k
+    drop (Value v) = v

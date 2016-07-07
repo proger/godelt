@@ -113,27 +113,30 @@ sub' n to = \case
 
 -- * Small-step eval
 
+type Eval1 a = Eval a a
+
 -- | Perform a single small evaluation step.
-step :: Syntax -> Eval Syntax
+step :: Syntax -> Eval1 Syntax
 step = para step1
 
 -- | Algebra for a small-step paramorphism.
 --   The left part of the functor value is a "thunk".
 --   This algebra matches over exactly 10 rules, ordered just like in the book!
-step1 :: SyntaxF (Syntax, Eval Syntax) -> Eval Syntax
+step1 :: SyntaxF (Syntax, Eval1 Syntax) -> Eval1 Syntax
 step1 = \case
-  Z                                              -> Value (Fix Z)
-  S (h, (Value x))                               -> Value (Fix (S h))
-  Lam n t (h, e)                                 -> Value (Fix (Lam n t h))
-  S (_, (Step x))                                -> Step (Fix (S x))
-  App (_, Step s)                  (h, _)        -> Step (Fix (App s h))
-  App (_, Value (Fix (Lam n t e))) (_, Step a)   -> Step (Fix (App (Fix (Lam n t e)) a))
-  App (_, Value (Fix (Lam n _ e))) (_, Value a)  -> Step (sub n a e)
-  Rec (zh, _) x y (sh, _) (_, Step nat)          -> Step (Fix (Rec zh x y sh nat))
-  Rec (zh, _) _ _ _       (_, Value (Fix Z))     -> Step zh
-  Rec (zh, _) x y (sh, _) (_, Value (Fix (S e))) -> Step (sub y (Fix (Rec zh x y sh e)) (sub x e sh))
+  Z                                             -> Value (Fix Z)
+  S (h, Value _)                                -> Value (Fix (S h))
+  Lam n t (h, e)                                -> Value (Fix (Lam n t h))
+  S (_, (Step x))                               -> Step (Fix (S x))
+  App (_,               Step s)  (h, _)         -> Step (Fix (App s h))
+  App (Fix (Lam n t e), Value _) (_, Step a)    -> Step (Fix (App (Fix (Lam n t e)) a))
+  App (Fix (Lam n _ e), Value _) (a, Value _)   -> Step (sub n a e)
+  Rec (zh, _) x y (sh, _) (_,         Step nat) -> Step (Fix (Rec zh x y sh nat))
+  Rec (zh, _) _ _ _       (Fix Z,     Value _)  -> Step zh
+  Rec (zh, _) x y (sh, _) (Fix (S e), Value _)  -> Step (sub y (Fix (Rec zh x y sh e)) (sub x e sh))
 
--- | Perform one eval step, useful in ghci.
+
+-- -- | Perform one eval step, useful in ghci.
 ds :: Syntax -> Syntax
 ds = meh . step where
   meh = \case
