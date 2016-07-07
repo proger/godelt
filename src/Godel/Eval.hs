@@ -11,7 +11,7 @@ data Eval v s
   | Value v
     deriving (Show)
 
-instance Functor (Eval s) where
+instance Functor (Eval v) where
   fmap f (Step s)  = Step (f s)
   fmap _ (Value v) = Value v
 
