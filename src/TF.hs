@@ -59,21 +59,18 @@ natlam2 :: (Syntax -> Syntax -> Syntax) -> Syntax
 natlam2 f = lamn $ \a -> lamn $ \b -> f a b
 
 lamn = lam Nat
-
 succ = Fix . S
-
 zero = Fix Z
 
 rec :: Syntax ->  (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
 rec zero step arg = Fix (Rec zero x y body arg)
   where
     maxBody = maxBV body
-    (x,y) = (maxBody+2, maxBody+1)
+    (x, y) = (maxBody + 2, maxBody + 1)
     body = step (Fix (Var x)) (Fix (Var y))
 
 iter :: Syntax -> (Syntax -> Syntax) -> Syntax -> Syntax
-iter zero step arg =
-  rec zero (\_prev -> step) arg
+iter zero step arg = rec zero (\_prev -> step) arg
 
 -- * Typechecker
 
@@ -89,22 +86,18 @@ type Ctx = Context Name Type
 typecheck :: Syntax -> Type
 typecheck = hata' ty emptyContext
 
+-- | Algebra for a typechecking step.
 ty :: Ctx -> SyntaxF Type -> (Ctx, Type)
-ty context =
-  let same t = (context, t)
-      mod n t t' = (intro context n t, t')
-      mod2 n1 t1 n2 t2 t' = (intro (intro context n1 t1) n2 t2, t')
-  in \case
-  Z                     -> same Nat
-  S t                   -> same (match "S" t Nat t)
-  Var n                 -> same (resolve context n)
-  Lam n t s             -> mod n t (t :--> s)
-  Rec zero x y step arg -> mod2 x Nat y zero (match "rec-arg" arg Nat step)
-  App f argdomain       ->
-    let fdomain :--> codomain = f in
-    same (match "ap-domain" fdomain argdomain codomain)
+ty context = (\(f, t) -> (f context, t)) . \case
+  Var n                 -> (id,                         resolve context n)
+  Z                     -> (id,                         Nat)
+  S t                   -> (id,                         match "S" t Nat t)
+  Rec zero x y step arg -> (intro x Nat . intro y zero, match "rec-arg" arg Nat step)
+  Lam n t s             -> (intro n t,                  t :--> s)
+  App f argdom          -> let fdom :--> codom = f in
+                           (id,                         match "ap-domain" fdom argdom codom)
   -- XXX: the following pattern triggers a loop. Why?
-  -- App (fdomain :--> codomain) argdomain -> same (match "ap-domain" fdomain argdomain codomain)
+  -- App (fdomain :--> codomain) argdomain -> (id, match "ap-domain" fdomain argdomain codomain)
 
 -- * Substitution
 

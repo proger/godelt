@@ -123,7 +123,7 @@ sub n arg s = let go = sub n arg in case s of
   S k                -> S (go k)
   Rec zero step arg' -> Rec (go zero) (go step) (go arg')
 
--- * PFPL Dynamics-inspired eval
+-- * Small-step operational semantics
 
 op :: Syntax -> Eval Syntax
 op = \case

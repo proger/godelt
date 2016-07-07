@@ -71,7 +71,7 @@ typecheck = ty emptyContext
 ty context =
   let resolv = resolve context
       next = ty context
-      inext n t = ty (intro context n t)
+      inext n t = ty (intro n t context)
   in \case
   Z              -> Nat
   S t            -> match "S" (next t) Nat Nat

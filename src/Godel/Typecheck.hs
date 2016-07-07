@@ -22,5 +22,5 @@ resolve :: Ord name => Context name ty -> name -> ty
 resolve context n =
   maybe (error "context fail") id (Map.lookup n context)
 
-intro :: Ord name => Context name ty -> name -> ty -> Context name ty
-intro c n t = Map.insert n t c
+intro :: Ord name => name -> ty -> Context name ty -> Context name ty
+intro = Map.insert
