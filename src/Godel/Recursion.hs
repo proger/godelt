@@ -15,16 +15,37 @@ type Algebra f a = f a -> a
 type Coalgebra f a = a -> f a
 
 -- | catamorphism (fold)
-cata :: Functor f => Algebra f a -> Fix f -> a
-cata alg = go where
+cata :: forall f a. Functor f => Algebra f a -> Fix f -> a
+cata alg ft = go ft where
+  go :: Fix f -> a
   go (Fix t) = alg (fmap go t)
+
+-- | hatamophism (i made this one up)
+-- A paramorphism that tracks the least upper state value and passes it to braches.
+hata :: forall state result f. Functor f
+        => (state -> f (Fix f, result) -> (state, result))
+        -> state -> Fix f -> result
+hata f start root = fprep start root where
+  fprep :: state -> Fix f -> result
+  fprep startvalue (Fix xs) =
+    let
+      next = fprep state
+      (state, value) = f startvalue (fmap (\inputxs -> (inputxs, next inputxs)) xs)
+   in value
+
+-- | hatamorphism that discards the "paramorphic" part
+hata' :: forall state result f. Functor f
+         => (state -> f result -> (state, result))
+         -> state -> Fix f -> result
+hata' f start root = hata (\s -> f s . fmap snd) start root
+
 
 -- | anamorphism (unfold)
 ana :: Functor f => Coalgebra f a -> a -> Fix f
 ana coalg = go where
   go base = Fix (fmap go (coalg base))
 
--- | paramorphism (cata + access to previous values)
+-- | paramorphism (cata + access to unevaluated subvalues ('Fix f'))
 para :: Functor f => (f (Fix f, b) -> b) -> Fix f -> b
 para alg = go where
   go (Fix t) = alg (fmap go' t)
