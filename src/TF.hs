@@ -114,8 +114,6 @@ sub' n to = \case
 
 -- * Small-step eval
 
-type Eval1 a = Eval a a
-
 -- | Perform a single small evaluation step.
 step :: Syntax -> Eval1 Syntax
 step = para step1

@@ -15,6 +15,8 @@ instance Functor (Eval v) where
   fmap f (Step s)  = Step (f s)
   fmap _ (Value v) = Value v
 
+type Eval1 a = Eval a a
+
 -- | Almost the same as 'Data.Either.either'.
 eval :: (s -> r) -> (v -> r) -> Eval v s -> r
 eval step value = \case
