@@ -15,8 +15,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Debug.Trace
 
-import Godel.Eval
-
 -- * Syntax
 
 type Name = Int
@@ -55,8 +53,6 @@ data Type
   = Nat
   | Type :--> Type
     deriving (Show, Eq)
-
-infixr 2 :-->
 
 data Mismatch
   = Mismatch String Type Type
@@ -115,29 +111,98 @@ ts m a = traceShow (m, a) a
 sub :: Name -> Syntax -> Syntax -> Syntax
 sub n arg s = let go = sub n arg in case s of
   Var n'
-    | n' == n        -> arg
-    | otherwise      -> Var n'
-  Lam n' t b         -> Lam n' t (go b)
-  f :$: a            -> (go f) :$: (go a)
-  Z                  -> Z
-  S k                -> S (go k)
-  Rec zero step arg' -> Rec (go zero) (go step) (go arg')
+    | n' == n   -> arg
+    | otherwise -> Var n'
+  Lam n' t b ->
+    Lam n' t (go b)
+  f :$: a ->
+    (go f) :$: (go a)
+  Z ->
+    Z
+  S k ->
+    S (go k)
+  Rec zero step arg' ->
+    Rec (go zero) (go step) (go arg')
 
--- * Small-step operational semantics
+-- * Naive recursive eval
 
--- XXX: b0rken?
-op :: Syntax -> Eval1 Syntax
+eval = \case
+  Z ->
+    Z
+  S e ->
+    S (eval e)
+  Var k ->
+    Var k
+  lam@(Lam _ _ _) :$: a ->
+    eval (apsub lam a)
+  x :$: a ->
+    eval (eval x :$: a)
+  Rec zero _step Z ->
+    eval zero
+  Rec zero step (S k) ->
+    -- iterator:
+    --   iter 0 u v → u
+    --   iter (S t) u v → v(iter t u v)
+    -- recursor:
+    --   0 u v → u
+    --   R (S t) u v → v (R t u v) t
+    eval (apsub (apsub step k) (eval (Rec zero step k)))
+  Rec z s a ->
+    eval (Rec z s (eval a))
+  lam@(Lam _ _ _) ->
+    lam
+  where
+    apsub (Lam n _ e) a = sub n a e
+    apsub f a = apsub (eval f) a
+
+-- * PFPL Dynamics-inspired eval
+
+data Eval
+  = Step Syntax
+  | Value
+    deriving Show
+
 op = \case
-  Z                                     -> Value Z
-  S e                                   -> S <$> op e
-  lam@(Lam _ _ _)                       -> Value lam
-  f@(Lam n _ e) :$: a                   -> eval (op . (f :$:)) (const (Step (sub n a e))) (op a)
-  f :$: a                               -> fmap (:$: a) (op f)
-  Rec z _ Z                             -> Step z
-  Rec z st@(Lam p _ (Lam r _ b)) (S pn) -> Step (sub r (Rec z st pn) (sub p pn b))
-  Rec z st@(Lam _ _ (Lam _ _ _)) nat    -> fmap (\nat' -> Rec z st nat') (op nat)
-  Rec z st nat                          -> fmap (\st' -> Rec z st' nat) (op st)
-  _                                     -> error "stuck"
+  Z ->
+    Value
+  S e ->
+    case op e of
+      Value -> Value
+      Step e' -> Step (S e')
+  Lam _ _ _ ->
+    Value
+  f :$: a ->
+    case op f of
+      Step f' -> op (f' :$: a)
+      Value ->
+        case op a of
+          Step a' -> op (f :$: a')
+          Value ->
+            case f of
+              Lam n _ e -> Step (sub n a e)
+              _ -> error "stuck (ap)"
+  Rec zero step arg ->
+    case op arg of
+      Step arg' -> Step (Rec zero step arg')
+      Value ->
+        case op step of
+          Step step' -> Step (Rec zero step' arg)
+          Value ->
+            case step of
+              Lam npred _ (Lam nres _ b) ->
+                case arg of
+                  Z ->
+                    Step zero
+                  S nat ->
+                    Step (sub nres (Rec zero step nat) (sub npred nat b))
+                  _  -> error "stuck (rec)"
+              _ -> error $ "op rec-step: am i supposed to break down here? " ++ show step
+  _ -> error "stuck"
+
+run e =
+  case op e of
+    Value -> e
+    Step s -> run s
 
 -- * Sugar
 
@@ -147,8 +212,6 @@ iter zero step arg =
 
 natlam2 :: (Syntax -> Syntax -> Syntax) -> Syntax
 natlam2 f = lam Nat $ \a -> lam Nat $ \b -> f a b
-
-lamn = lam Nat
 
 natrec :: Syntax -> (Syntax -> Syntax -> Syntax) -> Syntax -> Syntax
 natrec zero step arg =
@@ -240,10 +303,9 @@ suite = [ ("mult", mult)
         ]
 
 test =
-  let
-    run op e = eval (run op) (const e) (op e)
-    evalv (tag, e) = (tag, e, run op e)
-  in mapM_ (pprint . evalv) suite
+  -- let evalv (tag, e) = (tag, e, run e) in
+  let evalv (tag, e) = (tag, e, eval e) in
+  mapM_ (pprint . evalv) suite
 
 tytest =
   let ty (tag, e) = (tag, e, (typecheck e)) in
