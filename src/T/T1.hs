@@ -6,15 +6,15 @@
                 -fno-warn-unused-imports
                 -fno-warn-name-shadowing #-}
 
--- | Godel's T: a total language with natural numbers
+-- | Godel's T: a total language with natural numbers -- naive implementation
 
-module T1 where
+module T.T1 where
 
 import Prelude hiding (succ)
 import qualified Data.Map as Map
 import Data.Map (Map)
 
-import Spec.T
+import T.Spec
 
 data T1
 

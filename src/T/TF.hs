@@ -11,16 +11,16 @@
                 -fno-warn-unused-imports
                 -fno-warn-name-shadowing #-}
 
--- | Godel's T: a total language with natural numbers (functorial impl)
+-- | Godel's T: a total language with natural numbers -- functorial impl
 
-module TF where
+module T.TF where
 
 import Prelude hiding (succ, maxBound)
 import Godel.Recursion
 import Godel.Typecheck
 import Godel.Eval
 
-import Spec.T
+import T.Spec
 
 data TF
 

@@ -7,7 +7,7 @@
 
 -- | Godel's System T
 
-module Spec.T where
+module T.Spec where
 
 import Prelude hiding (exp, succ)
 import Text.Show.Pretty (ppShow)

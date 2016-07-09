@@ -16,13 +16,13 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     T1
-                     , PCF
-                     , TF
-                     , Godel.Eval
+  exposed-modules:     Godel.Eval
                      , Godel.Typecheck
                      , Godel.Recursion
-                     , Spec.T
+                     , T.T1
+                     , T.TF
+                     , T.Spec
+                     , PCF
                      , F
   build-depends:       base >= 4.7 && < 5
                      , containers
