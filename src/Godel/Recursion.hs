@@ -10,6 +10,10 @@ module Godel.Recursion where
 newtype Fix f = Fix (f (Fix f))
 
 deriving instance Show (f (Fix f)) => Show (Fix f)
+deriving instance Eq (f (Fix f)) => Eq (Fix f)
+
+unFix :: Fix t -> t (Fix t)
+unFix (Fix f) = f
 
 type Algebra f a = f a -> a
 type Coalgebra f a = a -> f a

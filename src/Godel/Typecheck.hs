@@ -1,5 +1,6 @@
 module Godel.Typecheck where
 
+import Prelude hiding (lookup)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -18,9 +19,15 @@ match rule l r next =
   then error (show (Mismatch rule l r))
   else next
 
+lookup :: Ord name => Context name ty -> name -> Maybe ty
+lookup = flip Map.lookup
+
 resolve :: Ord name => Context name ty -> name -> ty
 resolve context n =
-  maybe (error "context fail") id (Map.lookup n context)
+  maybe (error "context fail") id (lookup context n)
 
 intro :: Ord name => name -> ty -> Context name ty -> Context name ty
 intro = Map.insert
+
+refresh :: t2 -> (t2 -> t, t1) -> (t, t1)
+refresh context (f, t) = (f context, t)
