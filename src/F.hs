@@ -39,7 +39,7 @@ data ExpF a
 
 type Exp = Fix ExpF
 
--- -- = Pretty printer
+-- Pretty printer
 
 instance {-# OVERLAPS #-} Show Exp where show = show  . pretty
 instance {-# OVERLAPS #-} Show Type where show = show  . pretty
@@ -103,7 +103,7 @@ instance PrettyPrec Exp where
       parensIf (prec >= lamPrec) $
         prettyPrec topPrec body <> char '[' <> prettyPrec topPrec t <> char ']'
 
--- = Type Formation checker
+-- * Type Formation checker
 
 ok (Just x) = True
 ok Nothing  = False
@@ -122,7 +122,7 @@ tf context = refresh context . \case
                    do t <- mt
                       return (Fix (Forall tv t)))
 
--- = Type checker for expressions
+-- * Type checker for expressions
 
 typecheck :: Exp -> Type
 typecheck = hata' ty emptyContext
@@ -147,7 +147,7 @@ ty context = refresh context . \case
   TyApp t s    -> (id,        let Fix (Forall tvar t') = s in
                                        tsub tvar t t')
 
--- = Small-step operational semantics
+-- * Small-step operational semantics
 
 sub :: ExVar -> Exp -> Exp -> Exp
 sub n sub term = cata alg term where
@@ -185,7 +185,7 @@ pattern Val thunk <- (thunk, Value _)
 pattern Steps x <- (_, Step x)
 
 
--- = Macros for types and expressions
+-- * Macros for types and expressions
 
 tmaxBound :: Type -> TyVar
 tmaxBound = cata alg where
@@ -241,9 +241,9 @@ poly1 f = eΛ (\t -> eλ t (\e -> f t e))
 poly2 :: (Type -> Exp -> Type -> Exp -> Exp) -> Exp
 poly2 f = poly1 (\t1 e1 -> poly1 (\t2 e2 -> f t1 e1 t2 e2))
 
--- = Programs
+-- * Programs
 
--- == Products
+-- * Products
 
 -- | nullary product / unit type
 t'unit = for'all (\t -> t --> t)
@@ -263,7 +263,7 @@ e'left = undefined
 -- | right binary product projection (snd)
 e'right = undefined
 
--- == Sums
+-- * Sums
 
 -- | nullary sum / void type
 t'void = for'all (\t -> t)
@@ -272,7 +272,7 @@ t'void = for'all (\t -> t)
 e'sum :: Exp
 e'sum = undefined
 
--- == Natural numbers
+-- * Natural numbers
 
 t'nat :: Type
 t'nat = for'all (\t -> t --> (t --> t) --> t)
@@ -311,12 +311,12 @@ nat = \case
   0 -> e'zero
   k -> e'succ .: (nat (k-1))
 
--- == Lists
+-- * Lists
 
 e'list :: Exp
 e'list = undefined
 
--- == Existentials
+-- * Existentials
 
 e'exists :: Exp
 e'exists = undefined
