@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
@@ -12,6 +13,7 @@ module F where
 import Prelude hiding (lookup)
 import Text.PrettyPrint.ANSI.Leijen
 
+import Godel.Eval
 import Godel.Recursion
 import Godel.Typecheck
 
@@ -30,7 +32,7 @@ newtype ExVar = ExVar Int deriving (Show, Ord, Eq, Enum)
 data ExpF a
   = Var ExVar
   | Lam ExVar Type a
-  | App a a
+  | Ap a a
   | TyLam TyVar a     -- ^ Type abstraction, defines a generic type variable within 'a'.
   | TyApp Type a      -- ^ Type application, applies a polymorphic 'a' to a specific type.
     deriving (Show, Functor, Eq)
@@ -47,7 +49,7 @@ p a = pretty a
 type Prec = Rational
 
 parensIf :: Bool -> Doc -> Doc
-parensIf pred = if pred then parens else id
+parensIf pred = if pred then nest 2 . parens else id
 
 arrowLeftPrec, arrowRightPrec, arrowPrec, lamPrec,
   appPrec, appLeftPrec, appRightPrec, topPrec :: Prec
@@ -86,15 +88,20 @@ instance PrettyPrec Exp where
     Lam var ty body ->
       parensIf (prec >= lamPrec) $
         vsep [ char 'λ' <> parens (pretty var <> text ":" <+> pretty ty)
-             , nest 2 $ prettyPrec topPrec body ]
-    App e1 e2 ->
+             , nest 2 $ parens (prettyPrec topPrec body)
+             ]
+    Ap e1 e2 ->
       parensIf (prec >= appPrec) $
-        hsep [prettyPrec appLeftPrec e1, prettyPrec appRightPrec e2]
+        vsep [ prettyPrec appLeftPrec e1
+             , prettyPrec appRightPrec e2
+             ]
     TyLam var body ->
-      vsep [ char 'Λ' <> parens (pretty var), indent 2 $ prettyPrec topPrec body ]
+      vsep [ char 'Λ' <> parens (pretty var)
+           , nest 2 $ parens (prettyPrec topPrec body)
+           ]
     TyApp t body ->
       parensIf (prec >= lamPrec) $
-        hsep [ prettyPrec topPrec body <> char '[' <> prettyPrec topPrec t <> char ']' ]
+        prettyPrec topPrec body <> char '[' <> prettyPrec topPrec t <> char ']'
 
 -- = Type Formation checker
 
@@ -132,13 +139,51 @@ tsub var sub term = cata alg term where
 
 ty :: Context ExVar Type -> ExpF Type -> (Context ExVar Type, Type)
 ty context = refresh context . \case
-  Var n                 -> (id,        resolve context n)
-  Lam n t s             -> (intro n t, Fix (TArr t s))
-  App f argdom          -> (id,        let Fix (TArr fdom codom) = f in
-                                       match "app-domain" fdom argdom codom)
-  TyLam tvar s          -> (id,        Fix (Forall tvar s))
-  TyApp t s             -> (id,        let Fix (Forall tvar t') = s in
+  Var n        -> (id,        resolve context n)
+  Lam n t s    -> (intro n t, Fix (TArr t s))
+  Ap f argdom  -> (id,        let Fix (TArr fdom codom) = f in
+                              match "app-domain" fdom argdom codom)
+  TyLam tvar s -> (id,        Fix (Forall tvar s))
+  TyApp t s    -> (id,        let Fix (Forall tvar t') = s in
                                        tsub tvar t t')
+
+-- = Small-step operational semantics
+
+sub :: ExVar -> Exp -> Exp -> Exp
+sub n sub term = cata alg term where
+  alg = \case
+    Var n' | n' == n   -> sub
+           | otherwise -> Fix (Var n')
+    x                  -> Fix x
+
+etsub :: TyVar -> Type -> Exp -> Exp
+etsub var sub term = cata alg term where
+  alg = \case
+    Lam e ty x -> Fix (Lam e (tsub var sub ty) x)
+    TyApp ty x -> Fix (TyApp (tsub var sub ty) x)
+    x -> Fix x
+
+step :: Exp -> Eval1 Exp
+step = para step1
+
+step1 :: ExpF (Exp, Eval1 Exp) -> Eval1 Exp
+step1 = \case
+  Lam n t (Any h)                      -> Value (Fix (Lam n t h))
+  TyLam tv (Any h)                     -> Value (Fix (TyLam tv h))
+
+  Ap (Any (Fix (Lam n _ e))) (Val a)   -> Step (sub n a e)
+  Ap (Steps s) (Any h)                 -> Step (Fix (Ap s h))
+  Ap (Val (Fix (Lam n t e))) (Steps a) -> Step (Fix (Ap (Fix (Lam n t e)) a))
+
+  TyApp t (Any (Fix (TyLam tv e)))     -> Step (etsub tv t e)
+  TyApp t (Steps s)                    -> Step (Fix (TyApp t s))
+
+  _ -> error "stuck! did you typecheck?"
+
+pattern Any thunk <- (thunk, _)
+pattern Val thunk <- (thunk, Value _)
+pattern Steps x <- (_, Step x)
+
 
 -- = Macros for types and expressions
 
@@ -150,11 +195,11 @@ tmaxBound = cata alg where
 
 emaxBound :: Exp -> (ExVar, TyVar)
 emaxBound = cata alg where
-  alg (Var _)       = (ExVar 0, TyVar 0)
-  alg (Lam n tt e)  = (n `max` fst e, tmaxBound tt `max` snd e)
-  alg (App f a)     = (fst f `max` fst a, snd f `max` snd a)
-  alg (TyLam tv e)  = (fst e, snd e `max` tv)
-  alg (TyApp tt e)  = (fst e, snd e `max` tmaxBound tt) -- TODO: compose recursions?
+  alg (Var _)      = (ExVar 0, TyVar 0)
+  alg (Lam n tt e) = (n `max` fst e, tmaxBound tt `max` snd e)
+  alg (Ap f a)     = (fst f `max` fst a, snd f `max` snd a)
+  alg (TyLam tv e) = (fst e, snd e `max` tv)
+  alg (TyApp tt e) = (fst e, snd e `max` tmaxBound tt) -- TODO: compose recursions?
 
 -- | forall type
 for'all :: (Type -> Type) -> Type
@@ -181,7 +226,7 @@ eλ ty f = Fix (Lam var ty body)
 
 -- | function application (left-associative!)
 (.:) :: Exp -> Exp -> Exp
-f .: a = Fix (App f a)
+f .: a = Fix (Ap f a)
 infixl 2 .:
 
 -- | type application
@@ -204,7 +249,7 @@ poly2 f = poly1 (\t1 e1 -> poly1 (\t2 e2 -> f t1 e1 t2 e2))
 t'unit = for'all (\t -> t --> t)
 
 -- | unit value / nullary product (also polymorphic identity)
--- >>> e'unit == typecheck e'id
+-- >>> t'unit == typecheck e'unit
 -- True
 e'unit = eΛ (\t -> eλ t (\x -> x))
 
@@ -247,11 +292,24 @@ e'succ = eλ t'nat (\pred -> poly1 (\t z -> eλ (t --> t) (\s -> s .: ((pred %::
 t'iter :: Type
 t'iter = for'all (\t -> t --> (t --> t) --> t'nat --> t)
 
--- |
+-- | iterator over polymorphically-encoded nats
 -- >>> typecheck e'iter == t'iter
 -- True
 e'iter :: Exp
 e'iter = poly1 (\t zero -> eλ (t --> t) (\step -> eλ t'nat (\nat -> (nat %:: t) .: zero .: step)))
+
+e'const :: Exp
+e'const = eλ t'nat (\nat -> e'succ .: e'zero)
+
+-- | basic iteration example
+-- >>> typecheck e'count == t'nat
+-- True
+e'count :: Exp
+e'count = (e'iter %:: t'nat) .: e'zero .: e'const .: (nat 3)
+
+nat = \case
+  0 -> e'zero
+  k -> e'succ .: (nat (k-1))
 
 -- == Lists
 
@@ -262,3 +320,5 @@ e'list = undefined
 
 e'exists :: Exp
 e'exists = undefined
+
+t = run step e'count
